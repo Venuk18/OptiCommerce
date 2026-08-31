@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Product } from '../../types';
 import { useCommerce } from '../../context/CommerceContext';
 import { 
@@ -9,7 +9,8 @@ import {
   ShieldCheck, 
   Check, 
   Plus,
-  ArrowRight
+  ArrowRight,
+  Loader2
 } from 'lucide-react';
 
 interface ProductDetailsModalProps {
@@ -18,11 +19,35 @@ interface ProductDetailsModalProps {
   onOpenCart: () => void;
 }
 
-export function ProductDetailsModal({ product, onClose, onOpenCart }: ProductDetailsModalProps) {
-  const { addToCart, formatINR, constraints, products } = useCommerce();
+export function ProductDetailsModal({ product: initialProduct, onClose, onOpenCart }: ProductDetailsModalProps) {
+  const { addToCart, formatINR, constraints, products, loadProductDetails } = useCommerce();
+  const [product, setProduct] = useState<Product>(initialProduct);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+
+  // Fetch live product details on open from GET /api/products/:id
+  useEffect(() => {
+    let isMounted = true;
+    if (initialProduct?.id) {
+      setIsLoadingDetails(true);
+      loadProductDetails(initialProduct.id)
+        .then((liveProd) => {
+          if (isMounted && liveProd) {
+            setProduct(liveProd);
+          }
+        })
+        .finally(() => {
+          if (isMounted) setIsLoadingDetails(false);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [initialProduct.id, loadProductDetails]);
 
   // Find related/cross-sell item if enabled in AI Control
-  const crossSellItem = products.find(p => p.id !== product.id && p.category === 'Audio') || products[1];
+  const crossSellItem = products.find(p => p.id !== product.id && p.category === product.category) || 
+                        products.find(p => p.id !== product.id) || 
+                        null;
 
   const handleAddMain = () => {
     addToCart(product, 1);
@@ -31,7 +56,9 @@ export function ProductDetailsModal({ product, onClose, onOpenCart }: ProductDet
 
   const handleAddBundle = () => {
     addToCart(product, 1);
-    addToCart(crossSellItem, 1);
+    if (crossSellItem) {
+      addToCart(crossSellItem, 1);
+    }
     onOpenCart();
   };
 
@@ -44,9 +71,19 @@ export function ProductDetailsModal({ product, onClose, onOpenCart }: ProductDet
             <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-bold uppercase tracking-wider">
               {product.category}
             </span>
+            {product.brand && (
+              <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-bold">
+                {product.brand}
+              </span>
+            )}
             {product.matchScore && (
               <span className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">
                 ★ {product.matchScore}% Match
+              </span>
+            )}
+            {isLoadingDetails && (
+              <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                <Loader2 className="w-3 h-3 animate-spin" />
               </span>
             )}
           </div>
@@ -100,8 +137,23 @@ export function ProductDetailsModal({ product, onClose, onOpenCart }: ProductDet
           </div>
         </div>
 
+        {/* Features / Highlights */}
+        {product.features && product.features.length > 0 && (
+          <div className="space-y-2.5 pt-4 border-t border-slate-100">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Key Features</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              {product.features.map((feat, idx) => (
+                <div key={idx} className="flex items-start gap-2 p-2 bg-slate-50 rounded-lg text-slate-700">
+                  <Check className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                  <span>{feat}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Specifications */}
-        {product.specs && (
+        {product.specs && Object.keys(product.specs).length > 0 && (
           <div className="space-y-3 pt-4 border-t border-slate-100">
             <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Technical Specifications</h3>
             <div className="grid grid-cols-2 gap-2 text-xs">
@@ -116,7 +168,7 @@ export function ProductDetailsModal({ product, onClose, onOpenCart }: ProductDet
         )}
 
         {/* AI Smart Cross-Sell Bundle (Conditioned on Merchant AI Control) */}
-        {constraints.crossSellingIntelligence && (
+        {constraints.crossSellingIntelligence && crossSellItem && (
           <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-2xl space-y-3">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-purple-600" />

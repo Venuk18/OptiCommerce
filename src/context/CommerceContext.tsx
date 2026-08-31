@@ -1,6 +1,21 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Product, AIConstraints, CartItem, CustomerOrder, SimulationContext, SimulationOutcome, AIChatTurn } from '../types';
-import { INITIAL_PRODUCTS, INITIAL_AI_CONSTRAINTS, INITIAL_SIMULATION_CONTEXT, SIMULATION_SCENARIOS, DEFAULT_AI_CHAT_TURNS } from '../data/mockData';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { 
+  Product, 
+  AIConstraints, 
+  CartItem, 
+  CustomerOrder, 
+  SimulationContext, 
+  SimulationOutcome, 
+  AIChatTurn,
+  Store,
+  Merchant,
+  DbProduct
+} from '../types';
+import { INITIAL_AI_CONSTRAINTS, INITIAL_SIMULATION_CONTEXT, SIMULATION_SCENARIOS, DEFAULT_AI_CHAT_TURNS } from '../data/mockData';
+import { storeService } from '../services/store.service';
+import { merchantService } from '../services/merchant.service';
+import { productService } from '../services/product.service';
+import { mapDbProductToProduct } from '../utils/productMapper';
 
 export type MerchantTab = 
   | 'dashboard' 
@@ -37,6 +52,10 @@ interface CommerceContextType {
   
   // Products
   products: Product[];
+  isProductsLoading: boolean;
+  productsError: string | null;
+  refreshProducts: (targetStoreId?: string) => Promise<Product[]>;
+  loadProductDetails: (id: string) => Promise<Product | null>;
   addProduct: (product: Omit<Product, 'id'>) => void;
   updateProduct: (id: string, updates: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
@@ -91,6 +110,14 @@ interface CommerceContextType {
   showExitIntentModal: boolean;
   setShowExitIntentModal: (show: boolean) => void;
 
+  // Merchant & Store backend integration
+  store: Store | null;
+  merchant: Merchant | null;
+  isStoreLoading: boolean;
+  storeError: string | null;
+  refreshStore: (slug?: string) => Promise<Store | null>;
+  setStore: React.Dispatch<React.SetStateAction<Store | null>>;
+
   // Helper
   formatINR: (amount: number) => string;
   formatPrice: (amount: number) => string;
@@ -103,9 +130,127 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const [merchantTab, setMerchantTab] = useState<MerchantTab>('ai-control');
   const [customerTab, setCustomerTab] = useState<CustomerTab>('home');
   
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(INITIAL_PRODUCTS[0]);
-  
+  // Real Backend Store & Merchant state
+  const [store, setStore] = useState<Store | null>(null);
+  const [merchant, setMerchant] = useState<Merchant | null>(null);
+  const [isStoreLoading, setIsStoreLoading] = useState<boolean>(true);
+  const [storeError, setStoreError] = useState<string | null>(null);
+
+  // Live Products state
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isProductsLoading, setIsProductsLoading] = useState<boolean>(true);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  // Fetch products for a specific store from GET /api/products?storeId={storeId}&status=PUBLISHED
+  const refreshProducts = useCallback(async (targetStoreId?: string): Promise<Product[]> => {
+    const storeIdToUse = targetStoreId || store?.id;
+    if (!storeIdToUse) {
+      setProducts([]);
+      setIsProductsLoading(false);
+      return [];
+    }
+
+    setIsProductsLoading(true);
+    setProductsError(null);
+    try {
+      const dbProducts = await productService.getProducts({
+        storeId: storeIdToUse,
+        status: 'PUBLISHED',
+      });
+
+      // Filter: Only Published products with in-stock inventory (> 0)
+      const publishedInStock = dbProducts.filter(
+        (p) => p.status === 'PUBLISHED' && Number(p.stock) > 0
+      );
+
+      const mappedProducts = publishedInStock.map(mapDbProductToProduct);
+      setProducts(mappedProducts);
+
+      // Keep selectedProduct in sync
+      setSelectedProduct((prev) => {
+        if (!prev) return mappedProducts[0] || null;
+        const exists = mappedProducts.find((p) => p.id === prev.id);
+        return exists || mappedProducts[0] || null;
+      });
+
+      return mappedProducts;
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Failed to load products for store';
+      setProductsError(errorMsg);
+      return [];
+    } finally {
+      setIsProductsLoading(false);
+    }
+  }, [store?.id]);
+
+  // Load fresh single product details from GET /api/products/:id with store verification
+  const loadProductDetails = useCallback(async (id: string): Promise<Product | null> => {
+    try {
+      const dbProd = await productService.getProduct(id);
+      if (!dbProd) return null;
+      // Scoped verification: ensure product belongs to active store
+      if (store?.id && dbProd.storeId !== store.id) {
+        console.warn(`Product ${id} does not belong to active store ${store.id}`);
+        return null;
+      }
+      return mapDbProductToProduct(dbProd);
+    } catch (err: any) {
+      console.warn(`Error loading details for product ${id}:`, err);
+      return null;
+    }
+  }, [store?.id]);
+
+  // Refresh Store from GET /api/stores/:slug
+  const refreshStore = useCallback(async (customSlug?: string): Promise<Store | null> => {
+    setIsStoreLoading(true);
+    setStoreError(null);
+    try {
+      const activeSlug = customSlug || localStorage.getItem('opticommerce_store_slug') || 'opticommerce-flagship-electronics';
+      const fetchedStore = await storeService.getStore(activeSlug);
+      setStore(fetchedStore);
+      if (fetchedStore.merchant) {
+        setMerchant(fetchedStore.merchant);
+      }
+      localStorage.setItem('opticommerce_store_slug', fetchedStore.slug);
+      if (fetchedStore.merchantId) {
+        localStorage.setItem('opticommerce_merchant_id', fetchedStore.merchantId);
+      }
+
+      // Automatically fetch products for the resolved store
+      await refreshProducts(fetchedStore.id);
+
+      setIsStoreLoading(false);
+      return fetchedStore;
+    } catch (err: any) {
+      console.warn('Could not fetch store by slug:', err);
+      // Fallback: try merchant ID if stored
+      const savedMerchantId = localStorage.getItem('opticommerce_merchant_id');
+      if (savedMerchantId) {
+        try {
+          const fetchedMerchant = await merchantService.getMerchant(savedMerchantId);
+          setMerchant(fetchedMerchant);
+          if (fetchedMerchant.store) {
+            setStore(fetchedMerchant.store);
+            localStorage.setItem('opticommerce_store_slug', fetchedMerchant.store.slug);
+            await refreshProducts(fetchedMerchant.store.id);
+            setIsStoreLoading(false);
+            return fetchedMerchant.store;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      setStoreError(err?.message || 'Failed to load store data');
+      setIsStoreLoading(false);
+      return null;
+    }
+  }, [refreshProducts]);
+
+  useEffect(() => {
+    refreshStore();
+  }, [refreshStore]);
+
   // AI constraints
   const [savedConstraints, setSavedConstraints] = useState<AIConstraints>(INITIAL_AI_CONSTRAINTS);
   const [constraints, setConstraints] = useState<AIConstraints>(INITIAL_AI_CONSTRAINTS);
@@ -126,95 +271,35 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     setSearchQuery(prompt);
     const lower = prompt.toLowerCase();
     
-    let matchingProducts: Product[] = [];
-    let summary = '';
-    let note = '';
-    let followUps: string[] = [];
+    // Filter matching products dynamically from the live products in store
+    const matched = products.filter(p => 
+      p.name.toLowerCase().includes(lower) || 
+      p.description.toLowerCase().includes(lower) ||
+      p.tags.some(t => t.toLowerCase().includes(lower)) ||
+      p.category.toLowerCase().includes(lower) ||
+      (p.brand && p.brand.toLowerCase().includes(lower))
+    );
 
-    if (lower.includes('white') || lower.includes('pearl')) {
-      matchingProducts = [
-        products.find(p => p.id === 'zenpods-white') || products[2],
-        products.find(p => p.id === 'zenpods-pro') || products[0],
-      ].filter(Boolean) as Product[];
-      summary = "I found matching white colorways for the ZenPods series:";
-      note = "ZenPods Pro in Pure White has identical acoustic drivers and 40-hour battery life in a sleek matte pearl finish.";
-      followUps = [
-        'Show me something with better battery life',
-        'Are there any Sony options?',
-        'Compare technical specs'
-      ];
-    } else if (lower.includes('battery') || lower.includes('endurance') || lower.includes('hour')) {
-      matchingProducts = [
-        products.find(p => p.id === 'aurasound-60') || products[3],
-        products.find(p => p.id === 'zenpods-pro') || products[0],
-      ].filter(Boolean) as Product[];
-      summary = "I found long-battery endurance audio options:";
-      note = "AuraSound LongPlay 60 delivers 65 hours of continuous playback—over 50% more battery life than average.";
-      followUps = [
-        'Are there any Sony options?',
-        'I like the ZenPods, but are there any in white?',
-        'Are these sweat and water resistant?'
-      ];
-    } else if (lower.includes('sony') || lower.includes('xb910') || lower.includes('extra bass')) {
-      matchingProducts = [
-        products.find(p => p.id === 'sony-xb910n') || products[4],
-        products.find(p => p.id === 'bassmaster-elite') || products[1],
-      ].filter(Boolean) as Product[];
-      summary = "Here is the top rated Sony Extra Bass model currently in stock:";
-      note = "Sony WH-XB910N features dedicated dual noise sensor ANC and signature Extra Bass acoustic tuning.";
-      followUps = [
-        'Show me something under ₹5,000',
-        'Show me something with better battery life',
-        'I like the ZenPods, but are there any in white?'
-      ];
-    } else if (lower.includes('camera') || lower.includes('photo') || lower.includes('night') || lower.includes('1000')) {
-      matchingProducts = [
-        products.find(p => p.id === 'prod-camera-night') || products[5],
-        products.find(p => p.id === 'prod-charge-1') || products[0],
-      ].filter(Boolean) as Product[];
-      summary = "I found 2 products that match your requirements: 'Camera for night photography under $1000':";
-      note = "AlphaVision NightShot Pro features a back-illuminated sensor with dual native ISO for clean low-light shots.";
-      followUps = [
-        'What lenses are compatible with this body?',
-        'Show me wireless charging docks',
-        'Compare with studio headphones'
-      ];
-    } else if (lower.includes('laptop') || lower.includes('creator') || lower.includes('novabook')) {
-      matchingProducts = [
-        products.find(p => p.id === 'prod-laptop-1') || products[6],
-        products.find(p => p.id === 'prod-display-1') || products[7],
-      ].filter(Boolean) as Product[];
-      summary = "I found top-tier creator workstations for intensive creative workflows:";
-      note = "NovaBook Pro 16 features 64GB Unified RAM and 120Hz Mini-LED Liquid Retina display.";
-      followUps = [
-        'Show me compatible ultrawide displays',
-        'What fast chargers work with this?',
-        'Show me ergonomic desk bundles'
-      ];
-    } else {
-      // General or fallback search
-      const matched = products.filter(p => 
-        p.name.toLowerCase().includes(lower) || 
-        p.description.toLowerCase().includes(lower) ||
-        p.tags.some(t => t.toLowerCase().includes(lower)) ||
-        p.category.toLowerCase().includes(lower)
-      );
-      matchingProducts = matched.length >= 2 ? matched.slice(0, 2) : [products[0], products[1]];
-      summary = `I found 4 products that match your requirements: '${prompt}'.`;
-      note = `These two are the strongest matches based on your budget and 4.8/5 average user rating for bass performance.`;
-      followUps = [
-        'I like the ZenPods, but are there any in white?',
-        'Show me something with better battery life',
-        'Are there any Sony options?'
-      ];
-    }
+    const matchingProducts: Product[] = matched.length >= 1 ? matched.slice(0, 3) : products.slice(0, 3);
+    const summary = matchingProducts.length > 0
+      ? `I found ${matchingProducts.length} product${matchingProducts.length > 1 ? 's' : ''} that match your query in ${store?.name || 'our store'}:`
+      : `No published items matched '${prompt}'. Here are our featured products:`;
+    const note = matchingProducts.length > 0
+      ? `Top match: ${matchingProducts[0].name} (${formatINR(matchingProducts[0].basePrice)}) with in-stock availability.`
+      : `Check out our published catalog items below.`;
+
+    const followUps = [
+      'Compare technical specifications',
+      'Show me products under ₹5,000',
+      'Are there other colorways or models?'
+    ];
 
     const newTurn: AIChatTurn = {
       id: `turn-${Date.now()}`,
       userPrompt: prompt,
       assistantSummary: summary,
       highlightNote: note,
-      totalFound: 4,
+      totalFound: matchingProducts.length,
       recommendedProducts: matchingProducts,
       suggestedFollowUps: followUps,
     };
@@ -224,48 +309,10 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Cart
-  const [cart, setCart] = useState<CartItem[]>([
-    {
-      product: INITIAL_PRODUCTS[1], // Auralis ANC
-      quantity: 1,
-      appliedDiscountPercent: 5,
-      discountReason: '5% AI Optimal Loyalty Nudge',
-    },
-    {
-      product: INITIAL_PRODUCTS[4], // FastCharge Pro Station
-      quantity: 1,
-      appliedDiscountPercent: 0,
-    },
-    {
-      product: INITIAL_PRODUCTS[5], // Lumina Task Lamp
-      quantity: 1,
-      appliedDiscountPercent: 0,
-    }
-  ]);
+  const [cart, setCart] = useState<CartItem[]>([]);
 
   // Orders
-  const [orders, setOrders] = useState<CustomerOrder[]>([
-    {
-      id: 'ORD-8921',
-      date: '2026-08-28',
-      items: [
-        {
-          product: INITIAL_PRODUCTS[0],
-          quantity: 1,
-          appliedDiscountPercent: 5,
-          discountReason: 'AI Creator Workstation Nudge',
-        }
-      ],
-      subtotal: 2499,
-      discountAmount: 125,
-      total: 2374,
-      status: 'Delivered',
-      customerName: 'Sarah Jenkins',
-      customerEmail: 'sarah.jenkins@example.com',
-      shippingAddress: '742 Evergreen Terrace, Seattle WA 98101',
-      aiSavings: 125,
-    }
-  ]);
+  const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [lastCompletedOrder, setLastCompletedOrder] = useState<CustomerOrder | null>(null);
   const [showExitIntentModal, setShowExitIntentModal] = useState(false);
 
@@ -453,6 +500,10 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         customerTab,
         setCustomerTab,
         products,
+        isProductsLoading,
+        productsError,
+        refreshProducts,
+        loadProductDetails,
         addProduct,
         updateProduct,
         deleteProduct,
@@ -494,6 +545,12 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         placeOrder,
         showExitIntentModal,
         setShowExitIntentModal,
+        store,
+        merchant,
+        isStoreLoading,
+        storeError,
+        refreshStore,
+        setStore,
         formatINR,
         formatPrice,
       }}

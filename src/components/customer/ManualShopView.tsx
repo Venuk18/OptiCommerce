@@ -11,7 +11,11 @@ import {
   Check,
   Bot,
   ArrowUpDown,
-  Filter
+  Filter,
+  Loader2,
+  RefreshCw,
+  PackageOpen,
+  AlertCircle
 } from 'lucide-react';
 
 interface ManualShopViewProps {
@@ -22,6 +26,9 @@ interface ManualShopViewProps {
 export function ManualShopView({ onSelectProduct, onOpenCart }: ManualShopViewProps) {
   const { 
     products, 
+    isProductsLoading,
+    productsError,
+    refreshProducts,
     addToCart, 
     formatPrice, 
     manualSearchQuery, 
@@ -36,7 +43,9 @@ export function ManualShopView({ onSelectProduct, onOpenCart }: ManualShopViewPr
   const [maxPrice, setMaxPrice] = useState<number>(100000);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const categories = ['All', 'Audio', 'Electronics', 'Home Office', 'Fitness'];
+  // Dynamic categories from live products
+  const productCategories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
+  const categories = ['All', ...(productCategories.length > 0 ? productCategories : ['Audio', 'Electronics', 'Home Office', 'Fitness'])];
 
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
@@ -49,10 +58,11 @@ export function ManualShopView({ onSelectProduct, onOpenCart }: ManualShopViewPr
       if (manualSearchQuery.trim()) {
         const query = manualSearchQuery.toLowerCase();
         const matchesName = product.name.toLowerCase().includes(query);
-        const matchesDesc = product.description.toLowerCase().includes(query);
-        const matchesTags = product.tags.some(tag => tag.toLowerCase().includes(query));
-        const matchesCategory = product.category.toLowerCase().includes(query);
-        if (!matchesName && !matchesDesc && !matchesTags && !matchesCategory) {
+        const matchesDesc = (product.description || '').toLowerCase().includes(query);
+        const matchesTags = (product.tags || []).some(tag => tag.toLowerCase().includes(query));
+        const matchesCategory = (product.category || '').toLowerCase().includes(query);
+        const matchesBrand = (product.brand || '').toLowerCase().includes(query);
+        if (!matchesName && !matchesDesc && !matchesTags && !matchesCategory && !matchesBrand) {
           return false;
         }
       }
@@ -66,7 +76,7 @@ export function ManualShopView({ onSelectProduct, onOpenCart }: ManualShopViewPr
     }).sort((a, b) => {
       if (sortBy === 'price-low') return a.basePrice - b.basePrice;
       if (sortBy === 'price-high') return b.basePrice - a.basePrice;
-      if (sortBy === 'rating') return b.rating - a.rating;
+      if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
       return (b.matchScore || 0) - (a.matchScore || 0);
     });
   }, [products, selectedCategory, manualSearchQuery, maxPrice, sortBy]);
@@ -134,6 +144,23 @@ export function ManualShopView({ onSelectProduct, onOpenCart }: ManualShopViewPr
           </button>
         </div>
 
+        {/* Error Notification */}
+        {productsError && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center justify-between gap-4 text-red-700 text-xs">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{productsError}</span>
+            </div>
+            <button
+              onClick={() => refreshProducts()}
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Retry</span>
+            </button>
+          </div>
+        )}
+
         {/* Filters and Controls Bar */}
         <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
           
@@ -194,8 +221,32 @@ export function ManualShopView({ onSelectProduct, onOpenCart }: ManualShopViewPr
           </div>
         </div>
 
-        {/* Product Grid */}
-        {filteredProducts.length === 0 ? (
+        {/* Loading Indicator */}
+        {isProductsLoading && products.length === 0 ? (
+          <div className="py-20 text-center space-y-4">
+            <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto" />
+            <p className="text-xs text-slate-500 font-medium">Loading store inventory...</p>
+          </div>
+        ) : products.length === 0 ? (
+          /* Empty Catalog (Store has 0 products) */
+          <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+              <PackageOpen className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">No Products Published Yet</h3>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              This store does not have any active products available right now.
+            </p>
+            <button
+              onClick={() => refreshProducts()}
+              className="px-5 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 inline-flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Refresh Inventory</span>
+            </button>
+          </div>
+        ) : filteredProducts.length === 0 ? (
+          /* Empty Search Filter Result */
           <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
               <Search className="w-6 h-6" />
@@ -241,9 +292,16 @@ export function ManualShopView({ onSelectProduct, onOpenCart }: ManualShopViewPr
                 {/* Product Info */}
                 <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      {product.category}
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        {product.category}
+                      </span>
+                      {product.brand && (
+                        <span className="text-[10px] font-semibold text-slate-500">
+                          {product.brand}
+                        </span>
+                      )}
+                    </div>
                     <h3 className="font-bold text-slate-900 text-sm group-hover:text-blue-600 transition-colors line-clamp-2">
                       {product.name}
                     </h3>
