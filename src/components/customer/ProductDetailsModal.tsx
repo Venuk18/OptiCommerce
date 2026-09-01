@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Product } from '../../types';
 import { useCommerce } from '../../context/CommerceContext';
+import { eventService } from '../../services/event.service';
+import { CustomerOfferBanner } from './CustomerOfferBanner';
+import { SaleRecoverySection } from './SaleRecoverySection';
 import { 
   X, 
   Star, 
@@ -20,9 +23,27 @@ interface ProductDetailsModalProps {
 }
 
 export function ProductDetailsModal({ product: initialProduct, onClose, onOpenCart }: ProductDetailsModalProps) {
-  const { addToCart, formatINR, constraints, products, loadProductDetails } = useCommerce();
+  const { addToCart, formatINR, constraints, products, loadProductDetails, store } = useCommerce();
   const [product, setProduct] = useState<Product>(initialProduct);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [showSaleRecovery, setShowSaleRecovery] = useState(false);
+
+  // Track PRODUCT_VIEW commerce event on open (non-blocking)
+  useEffect(() => {
+    const storeIdToTrack = store?.id || initialProduct?.storeId;
+    if (storeIdToTrack && initialProduct?.id) {
+      eventService.trackEvent({
+        storeId: storeIdToTrack,
+        eventType: 'PRODUCT_VIEW',
+        productId: initialProduct.id,
+        metadata: {
+          name: initialProduct.name,
+          category: initialProduct.category,
+          price: initialProduct.basePrice,
+        },
+      });
+    }
+  }, [initialProduct.id, initialProduct.name, initialProduct.category, initialProduct.basePrice, initialProduct.storeId, store?.id]);
 
   // Fetch live product details on open from GET /api/products/:id
   useEffect(() => {
@@ -43,6 +64,12 @@ export function ProductDetailsModal({ product: initialProduct, onClose, onOpenCa
       isMounted = false;
     };
   }, [initialProduct.id, loadProductDetails]);
+
+  // Handle switching active product when customer clicks an alternative
+  const handleSelectAlternative = (altProduct: Product) => {
+    setProduct(altProduct);
+    setShowSaleRecovery(false);
+  };
 
   // Find related/cross-sell item if enabled in AI Control
   const crossSellItem = products.find(p => p.id !== product.id && p.category === product.category) || 
@@ -96,7 +123,7 @@ export function ProductDetailsModal({ product: initialProduct, onClose, onOpenCa
         </div>
 
         {/* Product Hero */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
           <div className="bg-slate-50 rounded-2xl p-6 flex items-center justify-center aspect-square border border-slate-100">
             <img
               src={product.image}
@@ -127,15 +154,31 @@ export function ProductDetailsModal({ product: initialProduct, onClose, onOpenCa
               {product.description}
             </p>
 
+            {/* Phase 5D: Customer Personalized Offer Experience */}
+            <CustomerOfferBanner
+              product={product}
+              onOfferRejected={() => setShowSaleRecovery(true)}
+              onOpenCart={onOpenCart}
+            />
+
             <button
               onClick={handleAddMain}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
             >
               <ShoppingBag className="w-4 h-4" />
-              <span>Add to Cart</span>
+              <span>Add to Cart (Standard)</span>
             </button>
           </div>
         </div>
+
+        {/* Phase 5E: Sale Recovery Section (Triggered on OFFER_REJECTED) */}
+        {showSaleRecovery && (
+          <SaleRecoverySection
+            rejectedProduct={product}
+            onSelectAlternative={handleSelectAlternative}
+            onOpenCart={onOpenCart}
+          />
+        )}
 
         {/* Features / Highlights */}
         {product.features && product.features.length > 0 && (
@@ -168,7 +211,7 @@ export function ProductDetailsModal({ product: initialProduct, onClose, onOpenCa
         )}
 
         {/* AI Smart Cross-Sell Bundle (Conditioned on Merchant AI Control) */}
-        {constraints.crossSellingIntelligence && crossSellItem && (
+        {constraints.crossSellingIntelligence && crossSellItem && !showSaleRecovery && (
           <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-2xl space-y-3">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-purple-600" />

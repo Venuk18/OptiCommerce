@@ -186,6 +186,48 @@ export interface ApiResponse<T> {
   };
 }
 
+export interface CustomerIntent {
+  category: string | null;
+  brand: string | null;
+  minPrice: number | null;
+  maxPrice: number | null;
+  preferences: string[];
+  keywords: string[];
+}
+
+export interface RankedRecommendation {
+  productId: string;
+  rank: number;
+  matchScore: number;
+  reason: string;
+}
+
+export interface RecommendationResponse {
+  query: string;
+  intent: CustomerIntent;
+  recommendations: RankedRecommendation[];
+  products?: {
+    id: string;
+    name: string;
+    description: string | null;
+    category: string;
+    brand: string | null;
+    price: number;
+    stock: number;
+    images: string[];
+    features: string[];
+    specifications: Record<string, any> | null;
+    tags: string[];
+    relevanceScore: number;
+  }[];
+  message?: string;
+}
+
+export interface RecommendRequestInput {
+  storeId: string;
+  query: string;
+}
+
 export interface CreateMerchantInput {
   name: string;
   email: string;
@@ -203,3 +245,228 @@ export interface UpdateStoreInput {
   slug?: string;
   description?: string | null;
 }
+
+export type CommerceEventType =
+  | 'SEARCH'
+  | 'RECOMMENDATION_VIEW'
+  | 'RECOMMENDATION_CLICK'
+  | 'PRODUCT_VIEW'
+  | 'ADD_TO_CART'
+  | 'REMOVE_FROM_CART'
+  | 'CHECKOUT_STARTED'
+  | 'OFFER_VIEW'
+  | 'OFFER_ACCEPTED'
+  | 'OFFER_REJECTED'
+  | 'PURCHASE';
+
+export interface TrackEventInput {
+  storeId: string;
+  eventType: CommerceEventType;
+  productId?: string | null;
+  metadata?: Record<string, any> | null;
+}
+
+export interface CommerceEventData {
+  id: string;
+  sessionId: string;
+  storeId: string;
+  productId: string | null;
+  eventType: CommerceEventType;
+  metadata?: Record<string, any> | null;
+  createdAt: string;
+}
+
+export type ConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export type SignalImpact =
+  | 'low_positive'
+  | 'positive'
+  | 'strong_positive'
+  | 'very_strong_positive'
+  | 'negative'
+  | 'strong_negative';
+
+export interface BehavioralSignal {
+  event: string;
+  impact: SignalImpact;
+  count?: number;
+  description?: string;
+}
+
+export interface PurchaseProbabilityRequest {
+  sessionId: string;
+  storeId: string;
+  productId: string;
+}
+
+export interface PurchaseProbabilityData {
+  sessionId: string;
+  storeId: string;
+  productId: string;
+  purchaseProbability: number;
+  score: number;
+  confidence: ConfidenceLevel;
+  signals: BehavioralSignal[];
+}
+
+export interface OptimizeRevenueRequest {
+  sessionId: string;
+  storeId: string;
+  productId: string;
+}
+
+export interface RevenueOptimizationData {
+  productId: string;
+  price: number;
+  recommendedDiscount: number;
+  recommendedPrice: number;
+  reason: string;
+  purchaseProbability?: number;
+  expectedRevenue?: number;
+  expectedProfit?: number;
+  baselineExpectedProfit?: number;
+  improvement?: number;
+}
+
+export type OfferState =
+  | 'IDLE'
+  | 'LOADING'
+  | 'AVAILABLE'
+  | 'NO_DISCOUNT'
+  | 'ACCEPTED'
+  | 'REJECTED'
+  | 'ERROR';
+
+export interface CustomerOffer {
+  productId: string;
+  originalPrice: number;
+  discountPercentage: number;
+  discountedPrice: number;
+  savings: number;
+  message: string;
+  state: OfferState;
+}
+
+export interface RecoverSaleRequest {
+  sessionId: string;
+  storeId: string;
+  rejectedProductId: string;
+  userQuery?: string;
+  maxBudget?: number;
+  limit?: number;
+}
+
+export interface ProductAlternativeItem {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  brand: string | null;
+  price: number;
+  stock: number;
+  images: string[];
+  features: string[];
+  tags: string[];
+  status: string;
+  similarityScore: number;
+  matchHighlights?: string[];
+  priceDifference: number;
+  priceComparison: 'cheaper' | 'similar' | 'premium';
+}
+
+export interface RecoverSaleResult {
+  rejectedProductId: string;
+  rejectedProductName: string;
+  rejectedProductPrice: number;
+  alternatives: ProductAlternativeItem[];
+  totalFound: number;
+}
+
+export interface ServerCartItem {
+  id: string;
+  productId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  image: string;
+  category: string;
+  inStock: boolean;
+  availableStock: number;
+  status: string;
+}
+
+export interface ServerCartData {
+  id: string | null;
+  sessionId: string;
+  storeId: string;
+  items: ServerCartItem[];
+  subtotal: number;
+  discount: number;
+  total: number;
+  itemCount: number;
+  lastAddedProductId?: string | null;
+}
+
+export interface BundleSuggestion {
+  productId: string;
+  name: string;
+  category: string;
+  brand: string;
+  price: number;
+  stock: number;
+  image: string;
+  reason: string;
+  bundleScore: number;
+}
+
+export interface BundleSuggestionsResponseData {
+  baseProductId: string;
+  suggestions: BundleSuggestion[];
+}
+
+export type OrderStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED';
+export type PaymentStatus = 'CREATED' | 'PAID' | 'FAILED' | 'REFUNDED';
+
+export interface ServerOrderItemData {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  discountPercent: number;
+  discountAmount: number;
+  lineTotal: number;
+}
+
+export interface ServerOrderData {
+  orderId: string;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  razorpayOrderId?: string | null;
+  razorpayPaymentId?: string | null;
+  currency: string;
+  subtotal: number;
+  discount: number;
+  total: number;
+  createdAt: string;
+  items: ServerOrderItemData[];
+}
+
+export interface CreatePaymentOrderResponse {
+  razorpayOrderId: string;
+  amount: number;
+  currency: string;
+  keyId: string;
+}
+
+export interface VerifyPaymentResponse {
+  orderId: string;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  razorpayPaymentId: string;
+}
+
+
+
+
+

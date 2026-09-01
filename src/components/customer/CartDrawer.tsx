@@ -1,5 +1,6 @@
 import React from 'react';
 import { useCommerce } from '../../context/CommerceContext';
+import { BundleSuggestionsSection } from './BundleSuggestionsSection';
 import { 
   X, 
   Trash2, 
@@ -20,6 +21,7 @@ interface CartDrawerProps {
 export function CartDrawer({ isOpen, onClose, onProceedToCheckout }: CartDrawerProps) {
   const { 
     cart, 
+    lastAddedProduct,
     updateCartQuantity, 
     removeFromCart, 
     cartSubtotal, 
@@ -28,6 +30,9 @@ export function CartDrawer({ isOpen, onClose, onProceedToCheckout }: CartDrawerP
     formatINR, 
     constraints 
   } = useCommerce();
+
+  // Determine base product ID for bundle suggestions: lastAddedProduct or most recent cart item
+  const baseProductId = lastAddedProduct?.id || (cart.length > 0 ? cart[cart.length - 1].product.id : null);
 
   if (!isOpen) return null;
 
@@ -65,67 +70,72 @@ export function CartDrawer({ isOpen, onClose, onProceedToCheckout }: CartDrawerP
                 <p className="text-xs text-slate-400">Discover AI-recommended products in the store.</p>
               </div>
             ) : (
-              cart.map((item) => (
-                <div
-                  key={item.product.id}
-                  className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3"
-                >
-                  <div className="flex gap-3">
-                    <img
-                      src={item.product.image}
-                      alt={item.product.name}
-                      className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start gap-1">
-                        <h4 className="text-xs font-bold text-slate-900 truncate">{item.product.name}</h4>
+              <>
+                {cart.map((item) => (
+                  <div
+                    key={item.product.id}
+                    className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3"
+                  >
+                    <div className="flex gap-3">
+                      <img
+                        src={item.product.image}
+                        alt={item.product.name}
+                        className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start gap-1">
+                          <h4 className="text-xs font-bold text-slate-900 truncate">{item.product.name}</h4>
+                          <button
+                            onClick={() => removeFromCart(item.product.id)}
+                            className="text-slate-400 hover:text-red-600 p-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <p className="text-xs font-bold text-slate-800 mt-1">
+                          {formatINR(item.product.basePrice)}
+                        </p>
+
+                        {/* AI Dynamic Discount Badge */}
+                        {item.appliedDiscountPercent > 0 && (
+                          <div className="mt-1 flex items-center gap-1 text-[10px] text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-md font-bold w-fit">
+                            <Sparkles className="w-3 h-3" />
+                            <span>{item.discountReason || `${item.appliedDiscountPercent}% AI Discount`}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quantity Controls */}
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-200/60">
+                      <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200">
                         <button
-                          onClick={() => removeFromCart(item.product.id)}
-                          className="text-slate-400 hover:text-red-600 p-1 cursor-pointer"
+                          onClick={() => updateCartQuantity(item.product.id, item.quantity - 1)}
+                          className="p-1 text-slate-500 hover:text-slate-900 cursor-pointer"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="text-xs font-bold text-slate-900 w-4 text-center">{item.quantity}</span>
+                        <button
+                          onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
+                          className="p-1 text-slate-500 hover:text-slate-900 cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" />
                         </button>
                       </div>
-                      <p className="text-xs font-bold text-slate-800 mt-1">
-                        {formatINR(item.product.basePrice)}
-                      </p>
 
-                      {/* AI Dynamic Discount Badge */}
-                      {item.appliedDiscountPercent > 0 && (
-                        <div className="mt-1 flex items-center gap-1 text-[10px] text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-md font-bold w-fit">
-                          <Sparkles className="w-3 h-3" />
-                          <span>{item.discountReason || `${item.appliedDiscountPercent}% AI Discount`}</span>
-                        </div>
-                      )}
+                      <span className="text-xs font-extrabold text-slate-900">
+                        {formatINR(
+                          item.product.basePrice * item.quantity * (1 - item.appliedDiscountPercent / 100)
+                        )}
+                      </span>
                     </div>
                   </div>
+                ))}
 
-                  {/* Quantity Controls */}
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-200/60">
-                    <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200">
-                      <button
-                        onClick={() => updateCartQuantity(item.product.id, item.quantity - 1)}
-                        className="p-1 text-slate-500 hover:text-slate-900 cursor-pointer"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
-                      <span className="text-xs font-bold text-slate-900 w-4 text-center">{item.quantity}</span>
-                      <button
-                        onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
-                        className="p-1 text-slate-500 hover:text-slate-900 cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
-                    </div>
-
-                    <span className="text-xs font-extrabold text-slate-900">
-                      {formatINR(
-                        item.product.basePrice * item.quantity * (1 - item.appliedDiscountPercent / 100)
-                      )}
-                    </span>
-                  </div>
-                </div>
-              ))
+                {/* Phase 6B: Complete your setup — Complementary Cross-Sell Bundles */}
+                <BundleSuggestionsSection baseProductId={baseProductId} />
+              </>
             )}
           </div>
 
@@ -156,7 +166,7 @@ export function CartDrawer({ isOpen, onClose, onProceedToCheckout }: CartDrawerP
 
               <div className="flex items-center gap-2 text-[11px] text-slate-500 justify-center">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span>AI Margin-protected transaction</span>
+                <span>100% Secure Checkout & Price Protection</span>
               </div>
 
               <button

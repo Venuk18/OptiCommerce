@@ -64,20 +64,34 @@ export class CandidateRetrievalService {
       };
     }
 
-    // Hard category filtering (normalized / case-insensitive)
+    // Hard category filtering (normalized / case-insensitive with category family mapping)
     if (intent.category && typeof intent.category === 'string' && intent.category.trim()) {
       const cat = intent.category.trim().toLowerCase();
       const singularCat = cat.endsWith('s') ? cat.slice(0, -1) : cat;
       const pluralCat = cat.endsWith('s') ? cat : `${cat}s`;
 
+      const CATEGORY_SYNONYMS: Record<string, string[]> = {
+        earbuds: ['earbuds', 'earbud', 'audio', 'headphones', 'earphones', 'tws', 'sound', 'pods'],
+        headphones: ['headphones', 'headphone', 'audio', 'earbuds', 'earphones', 'sound'],
+        earphones: ['earphones', 'earphone', 'audio', 'earbuds', 'headphones', 'sound'],
+        audio: ['audio', 'earbuds', 'headphones', 'earphones', 'speakers', 'sound'],
+        speakers: ['speakers', 'speaker', 'audio', 'soundbar', 'sound'],
+        laptops: ['laptops', 'laptop', 'notebook', 'electronics', 'computers'],
+        electronics: ['electronics', 'laptops', 'cameras', 'monitors', 'audio'],
+        accessories: ['accessories', 'chargers', 'cables', 'lighting', 'desk'],
+        chargers: ['chargers', 'charger', 'accessories', 'power', 'gan'],
+        cameras: ['cameras', 'camera', 'electronics', 'photography'],
+        smartwatches: ['smartwatches', 'smartwatch', 'wearables', 'watch', 'fitness'],
+        wearables: ['wearables', 'smartwatches', 'watch', 'fitness'],
+      };
+
+      const synonyms = CATEGORY_SYNONYMS[cat] || CATEGORY_SYNONYMS[singularCat] || [cat, singularCat, pluralCat];
+
       where.OR = [
-        { category: { equals: cat, mode: 'insensitive' } },
-        { category: { equals: singularCat, mode: 'insensitive' } },
-        { category: { equals: pluralCat, mode: 'insensitive' } },
-        { category: { contains: singularCat, mode: 'insensitive' } },
-        { name: { contains: singularCat, mode: 'insensitive' } },
-        { tags: { has: cat } },
-        { tags: { has: singularCat } },
+        ...synonyms.map((syn) => ({ category: { equals: syn, mode: 'insensitive' as const } })),
+        ...synonyms.map((syn) => ({ category: { contains: syn, mode: 'insensitive' as const } })),
+        ...synonyms.map((syn) => ({ name: { contains: syn, mode: 'insensitive' as const } })),
+        ...synonyms.map((syn) => ({ tags: { has: syn } })),
       ];
     }
 

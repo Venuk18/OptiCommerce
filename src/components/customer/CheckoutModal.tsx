@@ -17,7 +17,16 @@ interface CheckoutModalProps {
 }
 
 export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
-  const { cart, cartSubtotal, cartSavings, cartTotal, formatINR, placeOrder } = useCommerce();
+  const { 
+    cart, 
+    cartSubtotal, 
+    cartSavings, 
+    cartTotal, 
+    formatINR, 
+    checkoutOrder,
+    isCheckingOut,
+    checkoutError 
+  } = useCommerce();
 
   const [form, setForm] = useState({
     name: 'Rahul Verma',
@@ -25,18 +34,19 @@ export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
     address: 'Flat 402, Green Glen Heights, Bellandur, Bangalore 560103',
   });
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setTimeout(() => {
-      placeOrder(form);
-      setIsSubmitting(false);
+    setLocalError(null);
+    try {
+      await checkoutOrder(form);
       onClose();
-    }, 800);
+    } catch (err: any) {
+      setLocalError(err?.message || 'Checkout failed. Please check your cart and try again.');
+    }
   };
 
   return (
@@ -100,21 +110,21 @@ export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
           <div className="space-y-3 pt-2 border-t border-slate-100">
             <h3 className="font-bold text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
               <CreditCard className="w-3.5 h-3.5 text-blue-600" />
-              <span>Payment Simulation</span>
+              <span>Payment Gateway (Razorpay)</span>
             </h3>
 
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
-                  UPI
+                  RZP
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900 text-xs">Instant UPI & Cards</p>
-                  <p className="text-[11px] text-slate-500">Fast 1-click test checkout</p>
+                  <p className="font-bold text-slate-900 text-xs">Razorpay Secure Checkout</p>
+                  <p className="text-[11px] text-slate-500">UPI, NetBanking, Cards & Wallets</p>
                 </div>
               </div>
               <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold">
-                Test Mode Ready
+                100% Secure
               </span>
             </div>
           </div>
@@ -137,13 +147,23 @@ export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
             </div>
           </div>
 
+          {/* Error Message */}
+          {(localError || checkoutError) && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold">
+              {localError || checkoutError}
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-2"
+            disabled={isCheckingOut || cart.length === 0}
+            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white rounded-xl font-bold text-xs transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-2"
           >
-            {isSubmitting ? (
-              <span>Processing Payment...</span>
+            {isCheckingOut ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Creating Persistent Order...</span>
+              </span>
             ) : (
               <>
                 <ShieldCheck className="w-4 h-4" />

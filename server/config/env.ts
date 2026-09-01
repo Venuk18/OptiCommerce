@@ -21,4 +21,7 @@ export const config = {
   port: parseInt(process.env.SERVER_PORT || '5000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   databaseUrl: normalizeDatabaseUrl(process.env.DATABASE_URL || ''),
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID || '',
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || '',
+  razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
 };
