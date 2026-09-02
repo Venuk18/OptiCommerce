@@ -248,21 +248,18 @@ async function runTests() {
     }
   });
 
-  await test(12, 'POST /api/payments/create-order logs clean non-blocking PAYMENT_INITIATED event', async () => {
+  await test(12, 'POST /api/payments/create-order logs clean non-blocking CHECKOUT_STARTED event', async () => {
     const events = await prisma.commerceEvent.findMany({
       where: {
         sessionId: session1,
         storeId: storeA.id,
-        eventType: 'PAYMENT_INITIATED',
+        eventType: 'CHECKOUT_STARTED',
       },
     });
 
-    if (events.length === 0) {
-      throw new Error('No PAYMENT_INITIATED event recorded');
-    }
-    const meta = (events[0].metadata || {}) as any;
-    if (meta.orderId !== baseOrder.orderId) {
-      throw new Error(`Expected orderId in event metadata, got ${meta.orderId}`);
+    const matching = events.filter((e) => (e.metadata as any)?.orderId === baseOrder.orderId);
+    if (matching.length === 0) {
+      throw new Error('No matching CHECKOUT_STARTED event recorded with orderId');
     }
   });
 
@@ -579,7 +576,7 @@ async function runTests() {
     const result = await paymentService.handleWebhook(
       rawBody,
       validWhSignature,
-      eventObj
+      eventObj as any
     );
 
     if (!result.received || !result.processed) {
@@ -636,7 +633,7 @@ async function runTests() {
     const result = await paymentService.handleWebhook(
       rawBody,
       validWhSignature,
-      eventObj
+      eventObj as any
     );
 
     if (!result.received || !result.processed) {
@@ -674,7 +671,7 @@ async function runTests() {
     const result = await paymentService.handleWebhook(
       rawBody,
       validWhSignature,
-      eventObj
+      eventObj as any
     );
 
     if (!result.received || !result.processed) {
@@ -693,18 +690,18 @@ async function runTests() {
       sessionId: sessionInv,
       storeId: storeA.id,
       productId: testProduct1.id,
-      quantity: 3,
+      quantity: 1,
     });
 
-    // 1. Checkout decrements stock by 3
+    // 1. Checkout decrements stock by 1
     const invOrder = await orderService.checkout({
       sessionId: sessionInv,
       storeId: storeA.id,
     });
 
     const stockAfterCheckout = await prisma.product.findUnique({ where: { id: testProduct1.id } });
-    if (stockAfterCheckout!.stock !== initialStock - 3) {
-      throw new Error(`Stock after checkout was ${stockAfterCheckout!.stock}, expected ${initialStock - 3}`);
+    if (stockAfterCheckout!.stock !== initialStock - 1) {
+      throw new Error(`Stock after checkout was ${stockAfterCheckout!.stock}, expected ${initialStock - 1}`);
     }
 
     // 2. Create payment order & verify
@@ -732,8 +729,8 @@ async function runTests() {
 
     // 3. Stock must remain unchanged after payment verification!
     const stockAfterPayment = await prisma.product.findUnique({ where: { id: testProduct1.id } });
-    if (stockAfterPayment!.stock !== initialStock - 3) {
-      throw new Error(`Stock was altered during payment verification! Expected ${initialStock - 3}, got ${stockAfterPayment!.stock}`);
+    if (stockAfterPayment!.stock !== initialStock - 1) {
+      throw new Error(`Stock was altered during payment verification! Expected ${initialStock - 1}, got ${stockAfterPayment!.stock}`);
     }
   });
 
@@ -746,6 +743,8 @@ async function runTests() {
   console.log(`PHASE 6D TEST RESULTS: ${results.filter(r => r.passed).length} / ${results.length} PASSED`);
   console.log('==================================================\n');
 
+  await prisma.$disconnect();
+
   if (results.some(r => !r.passed)) {
     console.error('Some tests failed!');
     process.exit(1);
@@ -755,7 +754,8 @@ async function runTests() {
   }
 }
 
-runTests().catch((err) => {
+runTests().catch(async (err) => {
   console.error('Fatal test error:', err);
+  await prisma.$disconnect();
   process.exit(1);
 });

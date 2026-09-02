@@ -94,12 +94,12 @@ export class PaymentService {
       });
     }
 
-    // 8. Track PAYMENT_INITIATED event (non-blocking)
-    eventService
+    // 8. Track CHECKOUT_STARTED event (non-blocking if error)
+    await eventService
       .createEvent({
         sessionId: cleanSessionId,
         storeId: cleanStoreId,
-        eventType: 'PAYMENT_INITIATED',
+        eventType: 'CHECKOUT_STARTED',
         metadata: {
           source: 'create_payment_order',
           orderId: cleanOrderId,
@@ -224,7 +224,7 @@ export class PaymentService {
     });
 
     // 7. Track confirmed PURCHASE event (non-blocking)
-    eventService
+    await eventService
       .createEvent({
         sessionId: cleanSessionId,
         storeId: cleanStoreId,

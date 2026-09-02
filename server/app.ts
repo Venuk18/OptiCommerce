@@ -9,6 +9,7 @@ import revenueRoutes from './routes/revenue.routes';
 import cartRoutes from './routes/cart.routes';
 import orderRoutes from './routes/order.routes';
 import paymentRoutes from './routes/payment.routes';
+import merchantDashboardRoutes from './routes/merchant-dashboard.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { testDatabaseConnection, prisma } from './db/prisma';
 
@@ -33,6 +34,7 @@ app.use('/api/revenue', revenueRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/merchant-dashboard', merchantDashboardRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

@@ -1,7 +1,8 @@
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, AttributionSource } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { AppError } from '../errors/app.error';
 import { eventService } from './event.service';
+import { attributionService } from './revenue/attribution.service';
 import {
   CheckoutInput,
   OrderResponseData,
@@ -126,6 +127,7 @@ export class OrderService {
       }
 
       // 6. Verify products and validate inventory & discounts
+      const checkoutTime = new Date();
       const preparedItems: Array<{
         productId: string;
         productName: string;
@@ -135,6 +137,7 @@ export class OrderService {
         discountAmount: number;
         lineSubtotal: number;
         lineTotal: number;
+        attributionSource: AttributionSource;
       }> = [];
 
       for (const cartItem of cart.items) {
@@ -193,6 +196,9 @@ export class OrderService {
               storeId: cleanStoreId,
               productId: product.id,
               eventType: 'OFFER_ACCEPTED',
+              createdAt: {
+                lte: checkoutTime,
+              },
             },
             orderBy: { createdAt: 'desc' },
           });
@@ -221,6 +227,20 @@ export class OrderService {
           Math.max(0, lineSubtotal - lineDiscount).toFixed(2)
         );
 
+        // 8. Server-Authoritative Attribution Resolution
+        // Strict priority hierarchy: RECOVERY > OFFER > BUNDLE > AI_CHAT > DIRECT
+        let attributionSource: AttributionSource = AttributionSource.DIRECT;
+        try {
+          attributionSource = await attributionService.resolveAttributionSource({
+            sessionId: cleanSessionId,
+            storeId: cleanStoreId,
+            productId: product.id,
+            checkoutTime,
+          });
+        } catch {
+          attributionSource = AttributionSource.DIRECT;
+        }
+
         preparedItems.push({
           productId: product.id,
           productName: product.name,
@@ -230,6 +250,7 @@ export class OrderService {
           discountAmount: lineDiscount,
           lineSubtotal,
           lineTotal,
+          attributionSource,
         });
       }
 
@@ -283,6 +304,7 @@ export class OrderService {
                 discountPercent: item.discountPercent,
                 discountAmount: item.discountAmount,
                 lineTotal: item.lineTotal,
+                attributionSource: item.attributionSource,
               })),
             },
           },
@@ -298,6 +320,21 @@ export class OrderService {
 
         return newOrder;
       });
+
+      // Track CHECKOUT_STARTED event
+      await eventService
+        .createEvent({
+          sessionId: cleanSessionId,
+          storeId: cleanStoreId,
+          eventType: 'CHECKOUT_STARTED',
+          metadata: {
+            source: 'checkout_order_created',
+            orderId: createdOrder.id,
+            total: Number(createdOrder.total),
+            currency: 'INR',
+          },
+        })
+        .catch(() => {});
 
       return this.formatOrder(createdOrder);
     } finally {
@@ -423,7 +460,7 @@ export class OrderService {
     });
 
     // Track PURCHASE event on order confirmation
-    eventService
+    await eventService
       .createEvent({
         sessionId: sessionId.trim(),
         storeId: storeId.trim(),

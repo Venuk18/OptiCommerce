@@ -7,4 +7,5 @@ export * from './event.service';
 export * from './revenue.service';
 export * from './cart.service';
 export * from './order.service';
+export * from './merchant-dashboard.service';
 

@@ -84,7 +84,7 @@ export interface CustomerOrder {
   subtotal: number;
   discountAmount: number;
   total: number;
-  status: 'Processing' | 'Shipped' | 'Delivered';
+  status: 'Processing' | 'Confirmed' | 'Shipped' | 'Delivered';
   customerName: string;
   customerEmail: string;
   shippingAddress: string;
@@ -464,6 +464,40 @@ export interface VerifyPaymentResponse {
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   razorpayPaymentId: string;
+}
+
+export interface MerchantDashboardSummaryData {
+  totalRevenue: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  offerAcceptanceRate: number;
+  recoveredSales: number;
+  bundleRevenue: number;
+}
+
+export interface MerchantDashboardSummaryResponse {
+  success: boolean;
+  data: MerchantDashboardSummaryData;
+}
+
+export interface MerchantFunnelSummaryData {
+  recommendationViews: number;
+  recommendationClicks: number;
+  recommendationClickRate: number;
+  productViews: number;
+  addToCartEvents: number;
+  addToCartRate: number;
+  checkoutStarted: number;
+  purchases: number;
+  checkoutConversionRate: number;
+  offerViews: number;
+  offerAccepted: number;
+  offerAcceptanceRate: number;
+}
+
+export interface MerchantFunnelSummaryResponse {
+  success: boolean;
+  data: MerchantFunnelSummaryData;
 }
 
 

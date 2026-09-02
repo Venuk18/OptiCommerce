@@ -568,17 +568,19 @@ async function runTests() {
   console.log('--------------------------------------------------------------------------------');
   console.log(`\nOVERALL RESULT: ${passedCount}/${results.length} TESTS PASSED\n`);
 
+  await prisma.$disconnect();
+
   if (passedCount === results.length) {
     console.log('>>> ALL 25 PHASE 6C VERIFICATION TESTS PASSED SUCCESSFULLY! <<<\n');
+    process.exit(0);
   } else {
     console.error(`>>> FAILED: ${results.length - passedCount} test(s) failed. <<<\n`);
     process.exit(1);
   }
-
-  await prisma.$disconnect();
 }
 
-runTests().catch((err) => {
+runTests().catch(async (err) => {
   console.error('Fatal error during test run:', err);
+  await prisma.$disconnect();
   process.exit(1);
 });
