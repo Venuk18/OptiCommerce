@@ -545,6 +545,7 @@ async function runTests() {
     // Test through Express app directly with mock req/res
     const req: any = {
       query: { storeId: storeA.id },
+      merchant: { id: merchantA.id },
     };
     let responseStatus = 0;
     let responseBody: any = null;

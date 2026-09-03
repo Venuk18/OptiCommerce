@@ -1,9 +1,11 @@
 import { prisma } from '../db/prisma';
 import { AppError } from '../errors/app.error';
+import { hashPassword } from '../utils/password';
 
 export interface CreateMerchantInput {
   name: string;
   email: string;
+  password?: string;
 }
 
 export class MerchantService {
@@ -33,14 +35,19 @@ export class MerchantService {
       throw new AppError('Merchant with this email already exists', 409);
     }
 
+    const rawPassword = data.password && data.password.length >= 8 ? data.password : 'Merchant@2026';
+    const passwordHash = await hashPassword(rawPassword);
+
     const merchant = await prisma.merchant.create({
       data: {
         name: cleanName,
         email: cleanEmail,
+        passwordHash,
       },
     });
 
-    return merchant;
+    const { passwordHash: _hash, ...safeMerchant } = merchant;
+    return safeMerchant;
   }
 
   async getMerchantById(id: string) {
@@ -59,8 +66,10 @@ export class MerchantService {
       throw new AppError('Merchant not found', 404);
     }
 
-    return merchant;
+    const { passwordHash: _hash, ...safeMerchant } = merchant;
+    return safeMerchant;
   }
 }
 
 export const merchantService = new MerchantService();
+

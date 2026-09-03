@@ -1,4 +1,5 @@
 import { prisma } from '../server/db/prisma';
+import { signMerchantToken } from '../server/utils/jwt';
 
 async function runRegression() {
   const baseUrl = 'http://localhost:3000';
@@ -24,7 +25,15 @@ async function runRegression() {
   if (createMerchantRes.status !== 201 || !createdMerchant.success) throw new Error('Create Merchant failed');
   const merchantId = createdMerchant.data.id;
 
-  const getMerchantRes = await fetch(`${baseUrl}/api/merchants/${merchantId}`);
+  const merchantToken = signMerchantToken(merchantId);
+  const authHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${merchantToken}`,
+  };
+
+  const getMerchantRes = await fetch(`${baseUrl}/api/merchants/${merchantId}`, {
+    headers: authHeaders,
+  });
   const getMerchant = await getMerchantRes.json();
   console.log('   Get Merchant Status:', getMerchantRes.status, getMerchant.data?.name);
   if (getMerchantRes.status !== 200 || !getMerchant.success) throw new Error('Get Merchant failed');
@@ -34,7 +43,7 @@ async function runRegression() {
   const storeSlug = `reg-store-${Date.now()}`;
   const createStoreRes = await fetch(`${baseUrl}/api/stores`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({
       merchantId,
       name: 'Regression Store',
@@ -54,7 +63,7 @@ async function runRegression() {
 
   const updateStoreRes = await fetch(`${baseUrl}/api/stores/${storeId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({ name: 'Regression Store Updated', description: 'Updated description' }),
   });
   const updatedStore = await updateStoreRes.json();
@@ -63,7 +72,7 @@ async function runRegression() {
 
   const patchStoreStatusRes = await fetch(`${baseUrl}/api/stores/${storeId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({ status: 'PUBLISHED' }),
   });
   const patchedStore = await patchStoreStatusRes.json();
@@ -74,7 +83,7 @@ async function runRegression() {
   console.log('\n4. Testing Product APIs ...');
   const createProductRes = await fetch(`${baseUrl}/api/products`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({
       storeId,
       name: 'Regression Product',
@@ -107,7 +116,7 @@ async function runRegression() {
 
   const updateProductRes = await fetch(`${baseUrl}/api/products/${productId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({ name: 'Regression Product Updated', price: 2199.99 }),
   });
   const updatedProduct = await updateProductRes.json();
@@ -116,14 +125,17 @@ async function runRegression() {
 
   const patchProductStatusRes = await fetch(`${baseUrl}/api/products/${productId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({ status: 'PUBLISHED' }),
   });
   const patchedProduct = await patchProductStatusRes.json();
   console.log('   Patch Product Status:', patchProductStatusRes.status, patchedProduct.data?.status);
   if (patchProductStatusRes.status !== 200 || patchedProduct.data?.status !== 'PUBLISHED') throw new Error('Patch Product status failed');
 
-  const deleteProductRes = await fetch(`${baseUrl}/api/products/${productId}`, { method: 'DELETE' });
+  const deleteProductRes = await fetch(`${baseUrl}/api/products/${productId}`, {
+    method: 'DELETE',
+    headers: authHeaders,
+  });
   const deleteProduct = await deleteProductRes.json();
   console.log('   Delete Product Status:', deleteProductRes.status, deleteProduct.data?.deleted);
   if (deleteProductRes.status !== 200 || !deleteProduct.success) throw new Error('Delete Product failed');

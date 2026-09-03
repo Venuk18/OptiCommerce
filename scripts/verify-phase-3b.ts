@@ -1,6 +1,7 @@
 import http from 'http';
 import { app, initDatabase } from '../server/app';
 import { prisma } from '../server/db/prisma';
+import { signMerchantToken } from '../server/utils/jwt';
 
 async function verifyPhase3B() {
   console.log('=== RUNNING COMPREHENSIVE PHASE 3B VERIFICATION SUITE ===\n');
@@ -21,8 +22,14 @@ async function verifyPhase3B() {
 
     // Retrieve default store
     const defaultStore = await prisma.store.findFirst({ include: { merchant: true } });
-    if (!defaultStore) throw new Error('No default store in database');
+    if (!defaultStore || !defaultStore.merchant) throw new Error('No default store in database');
     console.log('  Using default store:', defaultStore.id, defaultStore.name);
+
+    const defaultToken = signMerchantToken(defaultStore.merchant.id);
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${defaultToken}`,
+    };
 
     // 1. Create product for valid store -> 201
     console.log('\nTest 1: POST /api/products (valid store) -> 201');
@@ -46,7 +53,7 @@ async function verifyPhase3B() {
     };
     const createRes = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify(createPayload),
     });
     const createdProduct = await createRes.json();
@@ -61,7 +68,7 @@ async function verifyPhase3B() {
     console.log('\nTest 2: POST /api/products (nonexistent store) -> 404');
     const fakeStoreRes = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         ...createPayload,
         storeId: '00000000-0000-0000-0000-000000000000',
@@ -77,7 +84,7 @@ async function verifyPhase3B() {
     console.log('\nTest 12: Invalid price <= 0 -> 400');
     const invalidPriceRes = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ ...createPayload, price: -10 }),
     });
     console.log('  Status:', invalidPriceRes.status, 'Price <= 0');
@@ -85,7 +92,7 @@ async function verifyPhase3B() {
 
     const invalidPriceZero = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ ...createPayload, price: 0 }),
     });
     console.log('  Status:', invalidPriceZero.status, 'Price == 0');
@@ -95,7 +102,7 @@ async function verifyPhase3B() {
     console.log('\nTest 13: Invalid stock -> 400');
     const invalidStockRes = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ ...createPayload, stock: -5 }),
     });
     console.log('  Status:', invalidStockRes.status, 'Stock < 0');
@@ -103,7 +110,7 @@ async function verifyPhase3B() {
 
     const floatStockRes = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ ...createPayload, stock: 4.5 }),
     });
     console.log('  Status:', floatStockRes.status, 'Stock is float');
@@ -113,7 +120,7 @@ async function verifyPhase3B() {
     console.log('\nTest 14: Invalid status -> 400');
     const invalidStatusRes = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ ...createPayload, status: 'SUPER_HOT' }),
     });
     console.log('  Status:', invalidStatusRes.status);
@@ -174,7 +181,7 @@ async function verifyPhase3B() {
     };
     const updateRes = await fetch(`${baseUrl}/api/products/${productId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify(updatePayload),
     });
     const updatedProd = await updateRes.json();
@@ -190,7 +197,7 @@ async function verifyPhase3B() {
     console.log('\nTest 9: PATCH /api/products/:id/status (PUBLISHED) -> 200');
     const publishRes = await fetch(`${baseUrl}/api/products/${productId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ status: 'PUBLISHED' }),
     });
     const publishedProd = await publishRes.json();
@@ -204,7 +211,7 @@ async function verifyPhase3B() {
     for (const st of ['LOW_STOCK', 'OUT_OF_STOCK', 'ARCHIVED', 'DRAFT']) {
       const res = await fetch(`${baseUrl}/api/products/${productId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({ status: st }),
       });
       const body = await res.json();
@@ -220,15 +227,18 @@ async function verifyPhase3B() {
     const n1 = await fetch(`${baseUrl}/api/products/${nonExistentId}`);
     const n2 = await fetch(`${baseUrl}/api/products/${nonExistentId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ name: 'Test' }),
     });
     const n3 = await fetch(`${baseUrl}/api/products/${nonExistentId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ status: 'PUBLISHED' }),
     });
-    const n4 = await fetch(`${baseUrl}/api/products/${nonExistentId}`, { method: 'DELETE' });
+    const n4 = await fetch(`${baseUrl}/api/products/${nonExistentId}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
     console.log('  Statuses:', n1.status, n2.status, n3.status, n4.status);
     if (n1.status !== 404 || n2.status !== 404 || n3.status !== 404 || n4.status !== 404) {
       throw new Error('Test 15 Failed: Nonexistent product did not return 404');
@@ -251,11 +261,16 @@ async function verifyPhase3B() {
       include: { store: true },
     });
     const secondStoreId = secondMerchant.store!.id;
+    const secondToken = signMerchantToken(secondMerchant.id);
+    const secondAuthHeaders = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${secondToken}`,
+    };
 
     // Create product in Store B
     const prodB = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: secondAuthHeaders,
       body: JSON.stringify({
         storeId: secondStoreId,
         name: 'Store B Exclusive Product',
@@ -290,7 +305,10 @@ async function verifyPhase3B() {
 
     // 11. Delete product -> 200
     console.log('\nTest 11: DELETE /api/products/:id -> 200');
-    const deleteRes = await fetch(`${baseUrl}/api/products/${productId}`, { method: 'DELETE' });
+    const deleteRes = await fetch(`${baseUrl}/api/products/${productId}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
     const deleteBody = await deleteRes.json();
     console.log('  Delete status:', deleteRes.status, deleteBody);
     if (deleteRes.status !== 200 || !deleteBody.success) {
@@ -310,7 +328,9 @@ async function verifyPhase3B() {
     if (!storeBySlug.success) throw new Error('Existing Store API failed');
 
     const merchantId = storeBySlug.data.merchantId || storeBySlug.data.merchant?.id;
-    const merchantById = await fetch(`${baseUrl}/api/merchants/${merchantId}`).then((r) => r.json());
+    const merchantById = await fetch(`${baseUrl}/api/merchants/${merchantId}`, {
+      headers: authHeaders,
+    }).then((r) => r.json());
     console.log('  Merchant by ID:', merchantById.success, merchantById.data?.name);
     if (!merchantById.success) throw new Error('Existing Merchant API failed');
 

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from './AuthContext';
 import { 
   Product, 
   AIConstraints, 
@@ -8,13 +9,14 @@ import {
   SimulationOutcome, 
   AIChatTurn,
   Store,
+  StoreStatus,
   Merchant,
   DbProduct,
   RecommendationResponse,
   ServerCartData,
   ServerOrderData
 } from '../types';
-import { INITIAL_AI_CONSTRAINTS, INITIAL_SIMULATION_CONTEXT, SIMULATION_SCENARIOS, DEFAULT_AI_CHAT_TURNS } from '../data/mockData';
+import { INITIAL_PRODUCTS, INITIAL_AI_CONSTRAINTS, INITIAL_SIMULATION_CONTEXT, SIMULATION_SCENARIOS, DEFAULT_AI_CHAT_TURNS } from '../data/mockData';
 import { storeService } from '../services/store.service';
 import { merchantService } from '../services/merchant.service';
 import { productService } from '../services/product.service';
@@ -152,8 +154,9 @@ interface CommerceContextType {
 const CommerceContext = createContext<CommerceContextType | undefined>(undefined);
 
 export function CommerceProvider({ children }: { children: React.ReactNode }) {
+  const { merchant: authMerchant, isAuthenticated } = useAuth();
   const [experience, setExperience] = useState<'merchant' | 'customer'>('customer');
-  const [merchantTab, setMerchantTab] = useState<MerchantTab>('ai-control');
+  const [merchantTab, setMerchantTab] = useState<MerchantTab>('dashboard');
   const [customerTab, setCustomerTab] = useState<CustomerTab>('home');
   
   // Real Backend Store & Merchant state
@@ -162,19 +165,19 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const [isStoreLoading, setIsStoreLoading] = useState<boolean>(true);
   const [storeError, setStoreError] = useState<string | null>(null);
 
-  // Live Products state
-  const [products, setProducts] = useState<Product[]>([]);
-  const [isProductsLoading, setIsProductsLoading] = useState<boolean>(true);
+  // Live Products state with INITIAL_PRODUCTS fallback
+  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [isProductsLoading, setIsProductsLoading] = useState<boolean>(false);
   const [productsError, setProductsError] = useState<string | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(INITIAL_PRODUCTS[0] || null);
 
   // Fetch products for a specific store from GET /api/products?storeId={storeId}&status=PUBLISHED
   const refreshProducts = useCallback(async (targetStoreId?: string): Promise<Product[]> => {
     const storeIdToUse = targetStoreId || store?.id;
     if (!storeIdToUse) {
-      setProducts([]);
+      setProducts((prev) => (prev.length > 0 ? prev : INITIAL_PRODUCTS));
       setIsProductsLoading(false);
-      return [];
+      return INITIAL_PRODUCTS;
     }
 
     setIsProductsLoading(true);
@@ -190,7 +193,9 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         (p) => p.status === 'PUBLISHED' && Number(p.stock) > 0
       );
 
-      const mappedProducts = publishedInStock.map(mapDbProductToProduct);
+      const mappedProducts = publishedInStock.length > 0
+        ? publishedInStock.map(mapDbProductToProduct)
+        : INITIAL_PRODUCTS;
       setProducts(mappedProducts);
 
       // Keep selectedProduct in sync
@@ -204,7 +209,8 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to load products for store';
       setProductsError(errorMsg);
-      return [];
+      setProducts((prev) => (prev.length > 0 ? prev : INITIAL_PRODUCTS));
+      return INITIAL_PRODUCTS;
     } finally {
       setIsProductsLoading(false);
     }
@@ -276,6 +282,50 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refreshStore();
   }, [refreshStore]);
+
+  // Track previous authentication status to handle logout safely
+  const prevAuthRef = useRef(isAuthenticated);
+
+  // Synchronize authenticated merchant's store with CommerceContext
+  useEffect(() => {
+    if (isAuthenticated && authMerchant?.store) {
+      const authStore = authMerchant.store;
+      if (!store || store.id !== authStore.id) {
+        const synchedStore: Store = {
+          id: authStore.id,
+          merchantId: authStore.merchantId || authMerchant.id,
+          name: authStore.name,
+          slug: authStore.slug,
+          description: authStore.description,
+          status: (authStore.status as StoreStatus) || 'PUBLISHED',
+          createdAt: authStore.createdAt || new Date().toISOString(),
+          updatedAt: authStore.updatedAt || new Date().toISOString(),
+        };
+        setStore(synchedStore);
+        setMerchant({
+          id: authMerchant.id,
+          name: authMerchant.name,
+          email: authMerchant.email,
+          createdAt: authMerchant.createdAt || new Date().toISOString(),
+          updatedAt: authMerchant.updatedAt || new Date().toISOString(),
+          store: synchedStore,
+        });
+        localStorage.setItem('opticommerce_store_slug', authStore.slug);
+        localStorage.setItem('opticommerce_merchant_id', authMerchant.id);
+        refreshProducts(authStore.id);
+      }
+    }
+  }, [isAuthenticated, authMerchant, store?.id, refreshProducts]);
+
+  // Handle merchant logout: restore public storefront without touching customer session ID
+  useEffect(() => {
+    if (prevAuthRef.current && !isAuthenticated) {
+      localStorage.removeItem('opticommerce_store_slug');
+      localStorage.removeItem('opticommerce_merchant_id');
+      refreshStore('opticommerce-flagship-electronics');
+    }
+    prevAuthRef.current = isAuthenticated;
+  }, [isAuthenticated, refreshStore]);
 
   // AI constraints
   const [savedConstraints, setSavedConstraints] = useState<AIConstraints>(INITIAL_AI_CONSTRAINTS);

@@ -460,6 +460,7 @@ async function runTests() {
 
     const req: any = {
       query: { storeId: storeA.id },
+      merchant: { id: merchantA.id },
     };
     const res: any = {
       status: (code: number) => {

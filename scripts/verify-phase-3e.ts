@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { prisma } from '../server/db/prisma';
+import { signMerchantToken } from '../server/utils/jwt';
 import { parseAndValidateProductsCsv, generateSampleCsv } from '../src/utils/csvParser';
 
 const BASE_URL = 'http://127.0.0.1:3000';
@@ -18,6 +19,12 @@ async function verifyPhase3E() {
   const store = await prisma.store.findFirst();
   if (!store) throw new Error('No store found in database');
   console.log(`✓ [11] Retrieved active store: "${store.name}" (id: ${store.id})`);
+
+  const merchantJwt = signMerchantToken(store.merchantId);
+  const authHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${merchantJwt}`,
+  };
 
   // 3. Test Sample CSV Template Generation
   const sampleCsv = generateSampleCsv();
@@ -116,7 +123,7 @@ async function verifyPhase3E() {
   for (const validItem of validParsed.validRows) {
     const res = await fetch(`${BASE_URL}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify(validItem.product),
     });
     if (res.status !== 201) {
@@ -160,7 +167,7 @@ async function verifyPhase3E() {
   };
   const singleRes = await fetch(`${BASE_URL}/api/products`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify(singleProductPayload),
   });
   if (singleRes.status !== 201) throw new Error('[13] Single Add Product flow failed');
@@ -170,16 +177,27 @@ async function verifyPhase3E() {
   // Update Status
   const statusRes = await fetch(`${BASE_URL}/api/products/${singleProd.id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({ status: 'PUBLISHED' }),
   });
   if (!statusRes.ok) throw new Error('[14] Update status failed');
   console.log('✓ [14] Product status update verified');
 
   // Clean up regression product
-  const delRes = await fetch(`${BASE_URL}/api/products/${singleProd.id}`, { method: 'DELETE' });
+  const delRes = await fetch(`${BASE_URL}/api/products/${singleProd.id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${merchantJwt}` },
+  });
   if (!delRes.ok) throw new Error('[14] Delete product failed');
   console.log('✓ [14] Product delete verified');
+
+  // Clean up imported products
+  for (const importedId of importedIds) {
+    await fetch(`${BASE_URL}/api/products/${importedId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${merchantJwt}` },
+    });
+  }
 
   // Verify Store APIs
   const storeRes = await fetch(`${BASE_URL}/api/stores`);

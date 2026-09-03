@@ -12,6 +12,16 @@ export class ApiError extends Error {
   }
 }
 
+export const MERCHANT_TOKEN_STORAGE_KEY = 'opticommerce_merchant_token';
+
+export const getStoredMerchantToken = (): string | null => {
+  try {
+    return localStorage.getItem(MERCHANT_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+};
+
 // Get the base API URL from environment variable or default to relative path
 const getBaseUrl = (): string => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
@@ -34,6 +44,22 @@ export async function apiFetch<T>(
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   };
+
+  // Attach merchant Bearer token if present for merchant/auth endpoints (and not already set)
+  if (!headers['Authorization'] && !headers['authorization']) {
+    const token = getStoredMerchantToken();
+    if (token) {
+      const isMerchantOrAuthRoute =
+        normalizedEndpoint.startsWith('/api/auth/me') ||
+        normalizedEndpoint.startsWith('/api/merchant') ||
+        normalizedEndpoint.startsWith('/api/stores') ||
+        normalizedEndpoint.startsWith('/api/products');
+      
+      if (isMerchantOrAuthRoute) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    }
+  }
 
   try {
     const response = await fetch(url, {

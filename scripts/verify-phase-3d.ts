@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { prisma } from '../server/db/prisma';
+import { signMerchantToken } from '../server/utils/jwt';
 
 const BASE_URL = 'http://127.0.0.1:3000';
 
@@ -12,9 +13,15 @@ async function verifyPhase3D() {
   console.log('✓ API Health OK');
 
   // 2. Fetch active store from database
-  const store = await prisma.store.findFirst();
-  if (!store) throw new Error('No store found in database');
+  const store = await prisma.store.findFirst({ include: { merchant: true } });
+  if (!store || !store.merchant) throw new Error('No store found in database');
   console.log(`✓ Retrieved store: ${store.name} (id: ${store.id}, slug: ${store.slug})`);
+
+  const token = signMerchantToken(store.merchant.id);
+  const authHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
 
   // 3. Test creating a product without status (should default to DRAFT)
   const newProductPayload1 = {
@@ -34,7 +41,7 @@ async function verifyPhase3D() {
 
   const createRes1 = await fetch(`${BASE_URL}/api/products`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify(newProductPayload1),
   });
 
@@ -67,7 +74,7 @@ async function verifyPhase3D() {
 
   const createRes2 = await fetch(`${BASE_URL}/api/products`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify(newProductPayload2),
   });
 
@@ -86,7 +93,7 @@ async function verifyPhase3D() {
   // 5. Test validation: Missing Name
   const invalidNameRes = await fetch(`${BASE_URL}/api/products`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({ ...newProductPayload1, name: '' }),
   });
   if (invalidNameRes.status !== 400) {
@@ -97,7 +104,7 @@ async function verifyPhase3D() {
   // 6. Test validation: Negative price
   const invalidPriceRes = await fetch(`${BASE_URL}/api/products`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({ ...newProductPayload1, price: -10 }),
   });
   if (invalidPriceRes.status !== 400) {
@@ -125,3 +132,4 @@ verifyPhase3D().catch((err) => {
   console.error('Phase 3D verification failed:', err);
   process.exit(1);
 });
+

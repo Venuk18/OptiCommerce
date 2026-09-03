@@ -53,3 +53,44 @@ export interface MerchantAttributionSummaryResponse {
   data: MerchantAttributionSummaryData;
 }
 
+export interface MerchantInsight {
+  id: string;
+  type:
+    | 'ATTRIBUTION_AI'
+    | 'BUNDLE_PERFORMANCE'
+    | 'OFFER_PERFORMANCE'
+    | 'RECOVERY_PERFORMANCE'
+    | 'FUNNEL_BOTTLENECK'
+    | 'CHECKOUT_BOTTLENECK'
+    | 'PRODUCT_OPPORTUNITY'
+    | 'SYSTEM_STATUS';
+
+  severity: 'INFO' | 'OPPORTUNITY' | 'WARNING';
+
+  title: string;
+  description: string;
+  metric?: number;
+  metricLabel?: string;
+  recommendation?: string;
+  createdAt: string;
+}
+
+export interface MerchantIntelligenceSummary {
+  storeId: string;
+  generatedAt: string;
+
+  insights: MerchantInsight[];
+
+  metricsSnapshot: {
+    totalRevenue: number;
+    aiInfluencedShare: number;
+    checkoutConversionRate: number;
+    offerAcceptanceRate: number;
+  };
+}
+
+export interface MerchantIntelligenceResponse {
+  success: boolean;
+  data: MerchantIntelligenceSummary;
+}
+

@@ -10,6 +10,8 @@ import cartRoutes from './routes/cart.routes';
 import orderRoutes from './routes/order.routes';
 import paymentRoutes from './routes/payment.routes';
 import merchantDashboardRoutes from './routes/merchant-dashboard.routes';
+import authRoutes from './routes/auth.routes';
+import { hashPassword } from './utils/password';
 import { errorHandler } from './middleware/error.middleware';
 import { testDatabaseConnection, prisma } from './db/prisma';
 
@@ -35,6 +37,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/merchant-dashboard', merchantDashboardRoutes);
+app.use('/api/auth', authRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
@@ -45,10 +48,12 @@ export async function ensureDefaultStore() {
       include: { merchant: true },
     });
     if (!defaultStore) {
+      const defaultPasswordHash = await hashPassword('Merchant@2026');
       const defaultMerchant = await prisma.merchant.create({
         data: {
           name: 'OptiCommerce Flagship Merchant',
           email: 'merchant@opticommerce.io',
+          passwordHash: defaultPasswordHash,
           store: {
             create: {
               name: 'OptiCommerce Flagship Electronics',

@@ -1,6 +1,7 @@
 import http from 'http';
 import { app, initDatabase } from '../server/app';
 import { prisma } from '../server/db/prisma';
+import { signMerchantToken } from '../server/utils/jwt';
 
 async function verifyPhase3C() {
   console.log('=== RUNNING PHASE 3C VERIFICATION SUITE ===\n');
@@ -16,10 +17,16 @@ async function verifyPhase3C() {
     const store = await prisma.store.findFirst({
       include: { merchant: true },
     });
-    if (!store) {
-      throw new Error('Default store not found');
+    if (!store || !store.merchant) {
+      throw new Error('Default store or merchant not found');
     }
     console.log(`[Phase 3C] Connected to store: "${store.name}" (${store.id})`);
+
+    const token = signMerchantToken(store.merchant.id);
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
 
     // 2. Test GET /api/products?storeId={storeId}
     console.log('\nTest 1: GET /api/products?storeId={storeId}');
@@ -67,7 +74,7 @@ async function verifyPhase3C() {
     for (const status of statusesToTest) {
       const patchRes = await fetch(`${baseUrl}/api/products/${targetProduct.id}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({ status }),
       });
       const patchBody = await patchRes.json();
@@ -81,7 +88,7 @@ async function verifyPhase3C() {
     console.log('\nTest 5: Temporary Product Creation and DELETE /api/products/:id');
     const tempProdRes = await fetch(`${baseUrl}/api/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         storeId: store.id,
         name: 'Temporary Test Product For Deletion',
@@ -98,6 +105,7 @@ async function verifyPhase3C() {
 
     const deleteRes = await fetch(`${baseUrl}/api/products/${tempId}`, {
       method: 'DELETE',
+      headers: authHeaders,
     });
     const deleteBody = await deleteRes.json();
     console.log('  Deleted temp product status:', deleteRes.status, deleteBody);

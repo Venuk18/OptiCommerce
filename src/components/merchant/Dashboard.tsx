@@ -3,6 +3,7 @@ import { useCommerce } from '../../context/CommerceContext';
 import { merchantDashboardService } from '../../services/merchant-dashboard.service';
 import { MerchantDashboardSummaryData } from '../../types';
 import { FunnelAnalytics } from './FunnelAnalytics';
+import { RevenueInsights } from './RevenueInsights';
 import { 
   TrendingUp, 
   ShoppingBag, 
@@ -293,6 +294,13 @@ export function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* Phase 6H — Revenue Intelligence & Actionable Insights */}
+          <RevenueInsights
+            storeId={store?.id}
+            isStoreLoading={isStoreLoading}
+            key={`insights-${store?.id}-${refreshKey}`}
+          />
 
           {/* Phase 6G.2 — Commerce Funnel & Offer Performance */}
           <FunnelAnalytics

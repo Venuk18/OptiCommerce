@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { AttributionSource } from '@prisma/client';
 import { prisma } from '../server/db/prisma';
 import { attributionService } from '../server/services/revenue/attribution.service';
@@ -853,7 +855,7 @@ async function runTests() {
   // 27. Security & privacy: No costPrice or customer PII exposed in controller response
   await test(27, 'No costPrice, margin, or PII exposed in attribution endpoint', async () => {
     let responseData: any = null;
-    const req: any = { query: { storeId: storeAId } };
+    const req: any = { query: { storeId: storeAId }, merchant: { id: merchantA.id } };
     const res: any = {
       status: (code: number) => ({
         json: (data: any) => {
@@ -882,8 +884,8 @@ async function runTests() {
   // 28. Zero Gemini Calls check
   await test(28, 'Zero Gemini / AI API calls executed during checkout or attribution summary', async () => {
     // attribution.service.ts and merchant-dashboard.service.ts contain zero imports of GoogleGenAI
-    const attributionSrc = require('fs').readFileSync('server/services/revenue/attribution.service.ts', 'utf8');
-    const dashboardSrc = require('fs').readFileSync('server/services/merchant-dashboard.service.ts', 'utf8');
+    const attributionSrc = fs.readFileSync(path.resolve(process.cwd(), 'server/services/revenue/attribution.service.ts'), 'utf8');
+    const dashboardSrc = fs.readFileSync(path.resolve(process.cwd(), 'server/services/merchant-dashboard.service.ts'), 'utf8');
 
     if (attributionSrc.includes('@google/genai') || dashboardSrc.includes('@google/genai')) {
       throw new Error('Forbidden import of @google/genai found in attribution or dashboard services');

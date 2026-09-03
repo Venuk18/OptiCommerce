@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { CommerceProvider, useCommerce } from './context/CommerceContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { MerchantSidebar } from './components/merchant/MerchantSidebar';
 import { MerchantHeader } from './components/merchant/MerchantHeader';
+import { MerchantAuth } from './components/merchant/MerchantAuth';
 import { AIControlCenter } from './components/merchant/AIControlCenter';
 import { DiscountOptimizer } from './components/merchant/DiscountOptimizer';
 import { Dashboard } from './components/merchant/Dashboard';
@@ -36,6 +38,8 @@ function MainLayout() {
     setShowExitIntentModal 
   } = useCommerce();
 
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
+
   // Customer Modals & State
   const [selectedProductForModal, setSelectedProductForModal] = useState<Product | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -48,23 +52,37 @@ function MainLayout() {
 
       {experience === 'merchant' ? (
         /* MERCHANT SUITE EXPERIENCE */
-        <div className="flex h-screen overflow-hidden">
-          <MerchantSidebar />
-          
-          <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+        isAuthLoading ? (
+          <div className="min-h-[80vh] flex flex-col items-center justify-center">
+            <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-xs font-semibold text-slate-500 mt-3">Verifying merchant session...</p>
+          </div>
+        ) : !isAuthenticated ? (
+          <div className="flex-1 flex flex-col">
             <MerchantHeader />
+            <div className="flex-1 flex items-center justify-center p-6 bg-[#F8FAFC]">
+              <MerchantAuth />
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-screen overflow-hidden">
+            <MerchantSidebar />
             
-            <section className="flex-1 overflow-y-auto bg-[#F8FAFC]">
-              {merchantTab === 'ai-control' && <AIControlCenter />}
-              {merchantTab === 'discount-optimizer' && <DiscountOptimizer />}
-              {merchantTab === 'dashboard' && <Dashboard />}
-              {merchantTab === 'products' && <ProductCatalog />}
-              {merchantTab === 'store-management' && <StoreManagement />}
-              {merchantTab === 'analytics' && <RevenueAnalytics />}
-              {merchantTab === 'settings' && <StoreManagement />}
-            </section>
-          </main>
-        </div>
+            <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+              <MerchantHeader />
+              
+              <section className="flex-1 overflow-y-auto bg-[#F8FAFC]">
+                {merchantTab === 'ai-control' && <AIControlCenter />}
+                {merchantTab === 'discount-optimizer' && <DiscountOptimizer />}
+                {merchantTab === 'dashboard' && <Dashboard />}
+                {merchantTab === 'products' && <ProductCatalog />}
+                {merchantTab === 'store-management' && <StoreManagement />}
+                {merchantTab === 'analytics' && <RevenueAnalytics />}
+                {merchantTab === 'settings' && <StoreManagement />}
+              </section>
+            </main>
+          </div>
+        )
       ) : (
         /* CUSTOMER STOREFRONT EXPERIENCE */
         <div className="min-h-screen flex flex-col bg-white">
@@ -144,8 +162,10 @@ function MainLayout() {
 
 export default function App() {
   return (
-    <CommerceProvider>
-      <MainLayout />
-    </CommerceProvider>
+    <AuthProvider>
+      <CommerceProvider>
+        <MainLayout />
+      </CommerceProvider>
+    </AuthProvider>
   );
 }

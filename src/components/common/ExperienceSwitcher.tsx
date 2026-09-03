@@ -3,7 +3,7 @@ import { useCommerce } from '../../context/CommerceContext';
 import { Store, ShieldCheck, ArrowRight } from 'lucide-react';
 
 export function ExperienceSwitcher() {
-  const { experience, setExperience, merchantTab, setMerchantTab, setCustomerTab } = useCommerce();
+  const { experience, setExperience, setMerchantTab, setCustomerTab } = useCommerce();
 
   return (
     <div className="fixed bottom-4 right-6 z-50 flex items-center gap-2 bg-slate-900/95 backdrop-blur-md text-white px-4 py-2.5 rounded-full shadow-2xl border border-slate-700/60 text-xs transition-all hover:border-blue-500/50">
@@ -16,9 +16,7 @@ export function ExperienceSwitcher() {
         <button
           onClick={() => {
             setExperience('merchant');
-            if (merchantTab !== 'ai-control' && merchantTab !== 'discount-optimizer') {
-              setMerchantTab('ai-control');
-            }
+            setMerchantTab('dashboard');
           }}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium transition-colors ${
             experience === 'merchant'
@@ -53,7 +51,7 @@ export function ExperienceSwitcher() {
             setCustomerTab('home');
           } else {
             setExperience('merchant');
-            setMerchantTab('ai-control');
+            setMerchantTab('dashboard');
           }
         }}
         className="flex items-center gap-1 pl-2 text-slate-300 hover:text-blue-400 font-medium transition-colors"

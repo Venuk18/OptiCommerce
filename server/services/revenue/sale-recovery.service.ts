@@ -176,7 +176,7 @@ export class SaleRecoveryService {
 
       const candCategory = (cand.category || '').trim().toLowerCase();
       const candBrand = (cand.brand || '').trim().toLowerCase();
-      const candTags = new Set(
+      const candTags = new Set<string>(
         (cand.tags || []).map((t) => String(t).trim().toLowerCase()).filter(Boolean)
       );
       const candFeatures = (cand.features || []).map((f) => String(f).trim().toLowerCase());
