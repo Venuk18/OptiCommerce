@@ -12,7 +12,11 @@ export class ProductRankingService {
    * Main entry point to rank candidate products for a given customer intent.
    * If Gemini is unavailable, fails validation, or times out, uses deterministic fallback ranking.
    */
-  async rankCandidates(intent: CustomerIntent, candidates: CandidateProduct[]): Promise<RankProductsResult> {
+  async rankCandidates(
+    intent: CustomerIntent,
+    candidates: CandidateProduct[],
+    aiClientOverride?: any
+  ): Promise<RankProductsResult> {
     // 1. Edge case: empty candidates list
     if (!candidates || candidates.length === 0) {
       return { rankedProducts: [] };
@@ -22,7 +26,7 @@ export class ProductRankingService {
     const boundedCandidates = candidates.slice(0, MAX_CANDIDATES);
 
     // 3. Try ranking with Gemini (at most ONE Gemini call)
-    const geminiClient = getGeminiClient();
+    const geminiClient = aiClientOverride !== undefined ? aiClientOverride : getGeminiClient();
     if (geminiClient) {
       try {
         const aiRankings = await this.rankWithGemini(geminiClient, intent, boundedCandidates);
@@ -71,10 +75,11 @@ CANDIDATE PRODUCTS (${sanitizedCandidates.length} items):
 ${JSON.stringify(sanitizedCandidates, null, 2)}
 
 RANKING CRITERIA:
-1. Category and price match (strictly prioritize candidates within budget: ${intent.maxPrice ? 'under ₹' + intent.maxPrice : 'any'}).
+1. Category and price/budget compatibility (strictly prioritize candidates within budget: ${intent.maxPrice ? 'under ₹' + intent.maxPrice : 'any'}).
 2. Explicit customer preferences (e.g. ${intent.preferences?.join(', ') || 'none specified'}).
-3. Relevant keywords (${intent.keywords?.join(', ') || 'none'}).
-4. Product specifications and features.
+3. Brand match when specified by the customer (${intent.brand ? 'target brand: ' + intent.brand : 'no specific brand required'}).
+4. Relevant keywords (${intent.keywords?.join(', ') || 'none'}).
+5. Product description, features, and specifications.
 
 STRICT INSTRUCTIONS:
 - Rank ALL candidate products in order of relevance to the customer (rank 1 = top match).
@@ -116,7 +121,7 @@ STRICT INSTRUCTIONS:
     );
 
     const response = await Promise.race([rankingPromise, timeoutPromise]);
-    const responseText = response.text?.();
+    const responseText = response.text;
 
     if (!responseText) {
       return null;

@@ -53,7 +53,8 @@ export async function apiFetch<T>(
         normalizedEndpoint.startsWith('/api/auth/me') ||
         normalizedEndpoint.startsWith('/api/merchant') ||
         normalizedEndpoint.startsWith('/api/stores') ||
-        normalizedEndpoint.startsWith('/api/products');
+        normalizedEndpoint.startsWith('/api/products') ||
+        normalizedEndpoint.startsWith('/api/ai/generate-description');
       
       if (isMerchantOrAuthRoute) {
         headers['Authorization'] = `Bearer ${token}`;

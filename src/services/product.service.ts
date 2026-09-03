@@ -57,6 +57,26 @@ export class ProductService {
       method: 'DELETE',
     });
   }
+
+  /**
+   * Generate AI-assisted product description based on product attributes (Phase 6#6)
+   */
+  async generateProductDescription(input: GenerateDescriptionInput): Promise<string> {
+    const res = await apiFetch<{ description: string }>('/api/ai/generate-description', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    return res.description;
+  }
+}
+
+export interface GenerateDescriptionInput {
+  name: string;
+  category: string;
+  brand?: string;
+  tags?: string[];
+  features?: string[];
+  specifications?: Record<string, any>;
 }
 
 export const productService = new ProductService();

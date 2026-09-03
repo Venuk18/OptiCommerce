@@ -89,6 +89,8 @@ export function ProductCatalog() {
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [newProduct, setNewProduct] = useState(INITIAL_PRODUCT_FORM);
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState<boolean>(false);
+  const [aiDescriptionError, setAiDescriptionError] = useState<string | null>(null);
 
   // CSV Import state
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
@@ -211,6 +213,8 @@ export function ProductCatalog() {
       setNewProduct(INITIAL_PRODUCT_FORM);
       setShowAddModal(false);
       setCreateError(null);
+      setAiDescriptionError(null);
+      setIsGeneratingDescription(false);
 
       // Feedback and refresh
       setSuccessMessage(`Product "${created.name}" created successfully (Status: ${STATUS_CONFIG[created.status]?.label || created.status})`);
@@ -221,6 +225,36 @@ export function ProductCatalog() {
       setCreateError(err?.message || 'Failed to create product. Please verify your inputs and try again.');
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  // AI Description Generation Handler (Phase 6#6)
+  const handleGenerateAiDescription = async () => {
+    const trimmedName = newProduct.name.trim();
+    if (!trimmedName || isGeneratingDescription || isCreating) return;
+
+    setIsGeneratingDescription(true);
+    setAiDescriptionError(null);
+
+    try {
+      const tagsArray = newProduct.tags
+        ? newProduct.tags.split(',').map((t) => t.trim()).filter(Boolean)
+        : [];
+
+      const description = await productService.generateProductDescription({
+        name: trimmedName,
+        category: newProduct.category || 'General',
+        brand: newProduct.brand?.trim() || undefined,
+        tags: tagsArray.length > 0 ? tagsArray : undefined,
+      });
+
+      if (description) {
+        setNewProduct((prev) => ({ ...prev, description }));
+      }
+    } catch (err: any) {
+      setAiDescriptionError(err?.message || 'Failed to generate AI description');
+    } finally {
+      setIsGeneratingDescription(false);
     }
   };
 
@@ -916,12 +950,42 @@ export function ProductCatalog() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700">Description</label>
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700">Description</label>
+                  <button
+                    type="button"
+                    disabled={!newProduct.name.trim() || isCreating || isGeneratingDescription}
+                    onClick={handleGenerateAiDescription}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors border border-purple-200"
+                    title={!newProduct.name.trim() ? 'Enter a product name first to generate description' : 'Generate description with AI'}
+                  >
+                    {isGeneratingDescription ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
+                        <span>Generating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                        <span>✨ Generate with AI</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                {aiDescriptionError && (
+                  <p className="mt-1 text-xs text-amber-600 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{aiDescriptionError}</span>
+                  </p>
+                )}
                 <textarea
                   rows={2}
                   disabled={isCreating}
                   value={newProduct.description}
-                  onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
+                  onChange={(e) => {
+                    setNewProduct({ ...newProduct, description: e.target.value });
+                    if (aiDescriptionError) setAiDescriptionError(null);
+                  }}
                   placeholder="Detailed product overview and key selling points..."
                   className="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 resize-none"
                 />
