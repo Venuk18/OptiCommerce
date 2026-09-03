@@ -10,6 +10,7 @@ import { Dashboard } from './components/merchant/Dashboard';
 import { ProductCatalog } from './components/merchant/ProductCatalog';
 import { RevenueAnalytics } from './components/merchant/RevenueAnalytics';
 import { StoreManagement } from './components/merchant/StoreManagement';
+import { OrdersManagement } from './components/merchant/OrdersManagement';
 
 import { CustomerHeader } from './components/customer/CustomerHeader';
 import { CustomerHome } from './components/customer/CustomerHome';
@@ -75,6 +76,7 @@ function MainLayout() {
                 {merchantTab === 'ai-control' && <AIControlCenter />}
                 {merchantTab === 'discount-optimizer' && <DiscountOptimizer />}
                 {merchantTab === 'dashboard' && <Dashboard />}
+                {merchantTab === 'orders' && <OrdersManagement />}
                 {merchantTab === 'products' && <ProductCatalog />}
                 {merchantTab === 'store-management' && <StoreManagement />}
                 {merchantTab === 'analytics' && <RevenueAnalytics />}

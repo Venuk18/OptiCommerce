@@ -4,6 +4,8 @@ import {
   MerchantDashboardSummaryData,
   MerchantFunnelSummaryData,
   MerchantAttributionSummaryData,
+  MerchantOrderData,
+  MerchantOrdersData,
 } from '../types/merchant-dashboard.types';
 import { AttributionSource } from '@prisma/client';
 
@@ -372,6 +374,252 @@ export class MerchantDashboardService {
         { source: 'RECOVERY', revenue: recoveredRevenue },
       ],
     };
+  }
+
+  /**
+   * Helper to serialize an order safely for merchant consumption.
+   * Strips internal costPrice, expectedProfit, purchaseProbability, passwordHash, and customer sessionId.
+   */
+  private serializeOrder(order: any): MerchantOrderData {
+    return {
+      id: order.id,
+      createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : String(order.createdAt),
+      updatedAt: order.updatedAt instanceof Date ? order.updatedAt.toISOString() : String(order.updatedAt),
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      subtotal: Number(order.subtotal),
+      discount: Number(order.discount),
+      total: Number(order.total),
+      currency: order.currency || 'INR',
+      razorpayOrderId: order.razorpayOrderId || null,
+      razorpayPaymentId: order.razorpayPaymentId || null,
+      customerName: null,
+      customerEmail: null,
+      customerPhone: null,
+      shippingAddress: null,
+      items: (order.items || []).map((item: any) => ({
+        id: item.id,
+        productId: item.productId,
+        productName: item.productName || item.product?.name || 'Product',
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+        discountPercent: Number(item.discountPercent || 0),
+        discountAmount: Number(item.discountAmount || 0),
+        lineTotal: Number(item.lineTotal),
+        attributionSource: item.attributionSource || 'DIRECT',
+      })),
+    };
+  }
+
+  /**
+   * Retrieves paginated orders for a store with filtering and search.
+   *
+   * STRICT GUARANTEES:
+   * - Scoped strictly to storeId.
+   * - ZERO Gemini / AI API calls.
+   * - Returns newest orders first.
+   * - Excludes sensitive merchant economics and raw customer sessionId.
+   */
+  async getStoreOrders(params: {
+    storeId: string;
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<MerchantOrdersData> {
+    const { storeId, status, search, page = 1, limit = 20 } = params;
+
+    if (!storeId || typeof storeId !== 'string' || !storeId.trim()) {
+      throw new AppError('storeId is required', 400);
+    }
+
+    const cleanStoreId = storeId.trim();
+
+    // Verify store exists
+    const store = await prisma.store.findUnique({
+      where: { id: cleanStoreId },
+      select: { id: true },
+    });
+
+    if (!store) {
+      throw new AppError('Store not found', 404);
+    }
+
+    // Build Prisma where filter
+    const whereClause: any = {
+      storeId: cleanStoreId,
+    };
+
+    // Status filter
+    if (status === 'READY_TO_PROCESS') {
+      whereClause.status = 'CONFIRMED';
+      whereClause.paymentStatus = 'PAID';
+    } else if (status === 'PENDING_PAYMENT') {
+      whereClause.status = 'PENDING';
+      whereClause.paymentStatus = 'CREATED';
+    } else if (status === 'CANCELLED') {
+      whereClause.status = 'CANCELLED';
+    }
+
+    // Search filter (by order ID)
+    if (search && search.trim()) {
+      whereClause.id = { contains: search.trim() };
+    }
+
+    // Pagination calculations
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    // Concurrently fetch counts for KPI cards and pagination
+    const [totalCount, readyCount, pendingCount, cancelledCount, filteredCount, orders] =
+      await Promise.all([
+        prisma.order.count({ where: { storeId: cleanStoreId } }),
+        prisma.order.count({
+          where: { storeId: cleanStoreId, status: 'CONFIRMED', paymentStatus: 'PAID' },
+        }),
+        prisma.order.count({
+          where: { storeId: cleanStoreId, status: 'PENDING', paymentStatus: 'CREATED' },
+        }),
+        prisma.order.count({ where: { storeId: cleanStoreId, status: 'CANCELLED' } }),
+        prisma.order.count({ where: whereClause }),
+        prisma.order.findMany({
+          where: whereClause,
+          include: {
+            items: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limitNum,
+        }),
+      ]);
+
+    return {
+      orders: orders.map((order) => this.serializeOrder(order)),
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalOrders: filteredCount,
+        totalPages: Math.ceil(filteredCount / limitNum) || 1,
+      },
+      counts: {
+        all: totalCount,
+        readyToProcess: readyCount,
+        pendingPayment: pendingCount,
+        cancelled: cancelledCount,
+      },
+    };
+  }
+
+  /**
+   * Retrieves single order detail verified against store ownership.
+   */
+  async getStoreOrderById(orderId: string, merchantId: string): Promise<MerchantOrderData> {
+    if (!orderId || !orderId.trim()) {
+      throw new AppError('orderId is required', 400);
+    }
+
+    const cleanOrderId = orderId.trim();
+    const order = await prisma.order.findUnique({
+      where: { id: cleanOrderId },
+      include: {
+        items: true,
+        store: {
+          select: { id: true, merchantId: true },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new AppError('Order not found', 404);
+    }
+
+    let store = order.store;
+    if (!store && order.storeId) {
+      store = await prisma.store.findUnique({
+        where: { id: order.storeId },
+        select: { id: true, merchantId: true },
+      });
+    }
+
+    if (!store || store.merchantId !== merchantId) {
+      throw new AppError('Forbidden: You do not have permission to access this order', 403);
+    }
+
+    return this.serializeOrder(order);
+  }
+
+  /**
+   * Cancels an order and atomically restores product inventory.
+   *
+   * STRICT SAFETY GUARANTEES:
+   * - Enforces merchant store ownership.
+   * - Rejects already cancelled orders.
+   * - Does NOT alter paymentStatus (payment state remains untouched).
+   * - Does NOT alter Razorpay transaction IDs.
+   * - Transactionally restores stock for each ordered item.
+   */
+  async cancelStoreOrder(orderId: string, merchantId: string): Promise<MerchantOrderData> {
+    if (!orderId || !orderId.trim()) {
+      throw new AppError('orderId is required', 400);
+    }
+
+    const cleanOrderId = orderId.trim();
+
+    return await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: cleanOrderId },
+        include: {
+          items: true,
+          store: {
+            select: { id: true, merchantId: true },
+          },
+        },
+      });
+
+      if (!order) {
+        throw new AppError('Order not found', 404);
+      }
+
+      let store = order.store;
+      if (!store && order.storeId) {
+        store = await tx.store.findUnique({
+          where: { id: order.storeId },
+          select: { id: true, merchantId: true },
+        });
+      }
+
+      if (!store || store.merchantId !== merchantId) {
+        throw new AppError('Forbidden: You do not have permission to cancel this order', 403);
+      }
+
+      if (order.status === 'CANCELLED') {
+        throw new AppError('Order is already cancelled', 400);
+      }
+
+      // Restore inventory for each item
+      for (const item of order.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            stock: { increment: item.quantity },
+          },
+        });
+      }
+
+      // Atomically update order status to CANCELLED without touching paymentStatus or razorpay fields
+      const updatedOrder = await tx.order.update({
+        where: { id: cleanOrderId },
+        data: {
+          status: 'CANCELLED',
+        },
+        include: {
+          items: true,
+        },
+      });
+
+      return this.serializeOrder(updatedOrder);
+    });
   }
 }
 

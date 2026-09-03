@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { 
   Product, 
@@ -29,6 +29,7 @@ import { mapDbProductToProduct } from '../utils/productMapper';
 
 export type MerchantTab = 
   | 'dashboard' 
+  | 'orders'
   | 'products' 
   | 'add-product' 
   | 'csv-import' 
@@ -159,11 +160,47 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const [merchantTab, setMerchantTab] = useState<MerchantTab>('dashboard');
   const [customerTab, setCustomerTab] = useState<CustomerTab>('home');
   
-  // Real Backend Store & Merchant state
-  const [store, setStore] = useState<Store | null>(null);
-  const [merchant, setMerchant] = useState<Merchant | null>(null);
+  // Public Customer Storefront state
+  const [customerStore, setCustomerStore] = useState<Store | null>(null);
+  const [customerMerchant, setCustomerMerchant] = useState<Merchant | null>(null);
   const [isStoreLoading, setIsStoreLoading] = useState<boolean>(true);
   const [storeError, setStoreError] = useState<string | null>(null);
+
+  // Synchronize authenticated merchant's store for Merchant Suite views without contaminating public storefront
+  const merchantStore = useMemo<Store | null>(() => {
+    if (!isAuthenticated || !authMerchant?.store) return null;
+    const authStore = authMerchant.store;
+    return {
+      id: authStore.id,
+      merchantId: authStore.merchantId || authMerchant.id,
+      name: authStore.name,
+      slug: authStore.slug,
+      description: authStore.description,
+      status: (authStore.status as StoreStatus) || 'PUBLISHED',
+      createdAt: authStore.createdAt || new Date().toISOString(),
+      updatedAt: authStore.updatedAt || new Date().toISOString(),
+    };
+  }, [isAuthenticated, authMerchant]);
+
+  // Active store resolution:
+  // In Merchant Suite with an authenticated merchant, use the merchant's private store.
+  // In Customer Storefront, always use the public customer store.
+  const store = (experience === 'merchant' && isAuthenticated && merchantStore)
+    ? merchantStore
+    : customerStore;
+
+  const merchant = (experience === 'merchant' && isAuthenticated && authMerchant)
+    ? {
+        id: authMerchant.id,
+        name: authMerchant.name,
+        email: authMerchant.email,
+        createdAt: authMerchant.createdAt || new Date().toISOString(),
+        updatedAt: authMerchant.updatedAt || new Date().toISOString(),
+        store: merchantStore || undefined,
+      }
+    : customerMerchant;
+
+  const setStore = setCustomerStore;
 
   // Live Products state with INITIAL_PRODUCTS fallback
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
@@ -173,7 +210,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch products for a specific store from GET /api/products?storeId={storeId}&status=PUBLISHED
   const refreshProducts = useCallback(async (targetStoreId?: string): Promise<Product[]> => {
-    const storeIdToUse = targetStoreId || store?.id;
+    const storeIdToUse = targetStoreId || customerStore?.id || store?.id;
     if (!storeIdToUse) {
       setProducts((prev) => (prev.length > 0 ? prev : INITIAL_PRODUCTS));
       setIsProductsLoading(false);
@@ -214,7 +251,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsProductsLoading(false);
     }
-  }, [store?.id]);
+  }, [customerStore?.id, store?.id]);
 
   // Load fresh single product details from GET /api/products/:id with store verification
   const loadProductDetails = useCallback(async (id: string): Promise<Product | null> => {
@@ -233,21 +270,23 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [store?.id]);
 
+  const FLAGSHIP_SLUG = 'opticommerce-flagship-electronics';
+
   // Refresh Store from GET /api/stores/:slug
   const refreshStore = useCallback(async (customSlug?: string): Promise<Store | null> => {
     setIsStoreLoading(true);
     setStoreError(null);
+
+    // Resolution: explicitly selected public slug, or stored public slug, or flagship default
+    const requestedSlug = customSlug || localStorage.getItem('opticommerce_store_slug') || FLAGSHIP_SLUG;
+
     try {
-      const activeSlug = customSlug || localStorage.getItem('opticommerce_store_slug') || 'opticommerce-flagship-electronics';
-      const fetchedStore = await storeService.getStore(activeSlug);
-      setStore(fetchedStore);
+      const fetchedStore = await storeService.getStore(requestedSlug);
+      setCustomerStore(fetchedStore);
       if (fetchedStore.merchant) {
-        setMerchant(fetchedStore.merchant);
+        setCustomerMerchant(fetchedStore.merchant);
       }
       localStorage.setItem('opticommerce_store_slug', fetchedStore.slug);
-      if (fetchedStore.merchantId) {
-        localStorage.setItem('opticommerce_merchant_id', fetchedStore.merchantId);
-      }
 
       // Automatically fetch products for the resolved store
       await refreshProducts(fetchedStore.id);
@@ -255,25 +294,38 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
       setIsStoreLoading(false);
       return fetchedStore;
     } catch (err: any) {
-      console.warn('Could not fetch store by slug:', err);
-      // Fallback: try merchant ID if stored
-      const savedMerchantId = localStorage.getItem('opticommerce_merchant_id');
-      if (savedMerchantId) {
+      console.warn(`Could not fetch store by slug '${requestedSlug}':`, err);
+
+      // STALE CUSTOMER STORE RECOVERY:
+      // If the public storefront requests a store slug and receives 404:
+      // If the requested slug is NOT opticommerce-flagship-electronics:
+      if (requestedSlug !== FLAGSHIP_SLUG) {
+        console.info(`Stale store slug detected ('${requestedSlug}'). Recovering with flagship store: '${FLAGSHIP_SLUG}'...`);
+        localStorage.removeItem('opticommerce_store_slug');
+        localStorage.removeItem('opticommerce_merchant_id');
+
         try {
-          const fetchedMerchant = await merchantService.getMerchant(savedMerchantId);
-          setMerchant(fetchedMerchant);
-          if (fetchedMerchant.store) {
-            setStore(fetchedMerchant.store);
-            localStorage.setItem('opticommerce_store_slug', fetchedMerchant.store.slug);
-            await refreshProducts(fetchedMerchant.store.id);
-            setIsStoreLoading(false);
-            return fetchedMerchant.store;
+          const fallbackStore = await storeService.getStore(FLAGSHIP_SLUG);
+          setCustomerStore(fallbackStore);
+          if (fallbackStore.merchant) {
+            setCustomerMerchant(fallbackStore.merchant);
           }
-        } catch {
-          // ignore
+          localStorage.setItem('opticommerce_store_slug', fallbackStore.slug);
+          await refreshProducts(fallbackStore.id);
+          setStoreError(null);
+          setIsStoreLoading(false);
+          return fallbackStore;
+        } catch (fallbackErr: any) {
+          console.error('Failed to load fallback flagship store:', fallbackErr);
+          setStoreError(fallbackErr?.message || 'Failed to load store data');
+          setCustomerStore(null);
+          setIsStoreLoading(false);
+          return null;
         }
       }
+
       setStoreError(err?.message || 'Failed to load store data');
+      setCustomerStore(null);
       setIsStoreLoading(false);
       return null;
     }
@@ -282,50 +334,6 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refreshStore();
   }, [refreshStore]);
-
-  // Track previous authentication status to handle logout safely
-  const prevAuthRef = useRef(isAuthenticated);
-
-  // Synchronize authenticated merchant's store with CommerceContext
-  useEffect(() => {
-    if (isAuthenticated && authMerchant?.store) {
-      const authStore = authMerchant.store;
-      if (!store || store.id !== authStore.id) {
-        const synchedStore: Store = {
-          id: authStore.id,
-          merchantId: authStore.merchantId || authMerchant.id,
-          name: authStore.name,
-          slug: authStore.slug,
-          description: authStore.description,
-          status: (authStore.status as StoreStatus) || 'PUBLISHED',
-          createdAt: authStore.createdAt || new Date().toISOString(),
-          updatedAt: authStore.updatedAt || new Date().toISOString(),
-        };
-        setStore(synchedStore);
-        setMerchant({
-          id: authMerchant.id,
-          name: authMerchant.name,
-          email: authMerchant.email,
-          createdAt: authMerchant.createdAt || new Date().toISOString(),
-          updatedAt: authMerchant.updatedAt || new Date().toISOString(),
-          store: synchedStore,
-        });
-        localStorage.setItem('opticommerce_store_slug', authStore.slug);
-        localStorage.setItem('opticommerce_merchant_id', authMerchant.id);
-        refreshProducts(authStore.id);
-      }
-    }
-  }, [isAuthenticated, authMerchant, store?.id, refreshProducts]);
-
-  // Handle merchant logout: restore public storefront without touching customer session ID
-  useEffect(() => {
-    if (prevAuthRef.current && !isAuthenticated) {
-      localStorage.removeItem('opticommerce_store_slug');
-      localStorage.removeItem('opticommerce_merchant_id');
-      refreshStore('opticommerce-flagship-electronics');
-    }
-    prevAuthRef.current = isAuthenticated;
-  }, [isAuthenticated, refreshStore]);
 
   // AI constraints
   const [savedConstraints, setSavedConstraints] = useState<AIConstraints>(INITIAL_AI_CONSTRAINTS);
@@ -500,7 +508,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const [cartError, setCartError] = useState<string | null>(null);
 
   const refreshCart = useCallback(async (targetStoreId?: string): Promise<ServerCartData | null> => {
-    const sId = targetStoreId || store?.id;
+    const sId = targetStoreId || customerStore?.id || store?.id;
     if (!sId) return null;
     setIsCartLoading(true);
     setCartError(null);
@@ -515,13 +523,13 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsCartLoading(false);
     }
-  }, [store?.id]);
+  }, [customerStore?.id, store?.id]);
 
   useEffect(() => {
-    if (store?.id) {
-      refreshCart(store.id);
+    if (customerStore?.id) {
+      refreshCart(customerStore.id);
     }
-  }, [store?.id, refreshCart]);
+  }, [customerStore?.id, refreshCart]);
 
   // Orders
   const [orders, setOrders] = useState<CustomerOrder[]>([]);

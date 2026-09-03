@@ -583,6 +583,63 @@ export interface AuthResult {
   token: string;
 }
 
+export interface MerchantOrderItemData {
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  discountPercent: number;
+  discountAmount: number;
+  lineTotal: number;
+  attributionSource: 'DIRECT' | 'AI_CHAT' | 'BUNDLE' | 'OFFER' | 'RECOVERY';
+}
+
+export interface MerchantOrderData {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  subtotal: number;
+  discount: number;
+  total: number;
+  currency: string;
+  razorpayOrderId: string | null;
+  razorpayPaymentId: string | null;
+  customerName?: string | null;
+  customerEmail?: string | null;
+  customerPhone?: string | null;
+  shippingAddress?: string | null;
+  items: MerchantOrderItemData[];
+}
+
+export interface MerchantOrdersData {
+  orders: MerchantOrderData[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalOrders: number;
+    totalPages: number;
+  };
+  counts: {
+    all: number;
+    readyToProcess: number;
+    pendingPayment: number;
+    cancelled: number;
+  };
+}
+
+export interface MerchantOrdersResponse {
+  success: boolean;
+  data: MerchantOrdersData;
+}
+
+export interface MerchantOrderDetailResponse {
+  success: boolean;
+  data: MerchantOrderData;
+}
+
 
 
 

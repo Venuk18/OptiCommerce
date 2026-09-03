@@ -27,5 +27,20 @@ router.get('/insights', (req, res, next) =>
   merchantDashboardController.getInsights(req, res, next)
 );
 
+// GET /api/merchant-dashboard/orders?storeId=<storeId>&status=<status>&search=<search>&page=<page>&limit=<limit>
+router.get('/orders', (req, res, next) =>
+  merchantDashboardController.getOrders(req, res, next)
+);
+
+// GET /api/merchant-dashboard/orders/:orderId
+router.get('/orders/:orderId', (req, res, next) =>
+  merchantDashboardController.getOrderDetail(req, res, next)
+);
+
+// PATCH /api/merchant-dashboard/orders/:orderId/cancel
+router.patch('/orders/:orderId/cancel', (req, res, next) =>
+  merchantDashboardController.cancelOrder(req, res, next)
+);
+
 export default router;
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { useCommerce, MerchantTab } from '../../context/CommerceContext';
 import { 
   LayoutDashboard, 
+  ShoppingBag,
   Package, 
   Sliders, 
   Percent, 
@@ -15,10 +16,14 @@ import {
 export function MerchantSidebar() {
   const { merchantTab, setMerchantTab, setExperience, setCustomerTab } = useCommerce();
 
-  const navItems: { id: MerchantTab; label: string; icon: React.ReactNode; group?: string }[] = [
+  const suiteNavItems: { id: MerchantTab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { id: 'orders', label: 'Orders', icon: <ShoppingBag className="w-4 h-4" /> },
     { id: 'products', label: 'Product Catalog', icon: <Package className="w-4 h-4" /> },
     { id: 'store-management', label: 'Store Management', icon: <Store className="w-4 h-4" /> },
+  ];
+
+  const aiNavItems: { id: MerchantTab; label: string; icon: React.ReactNode }[] = [
     { id: 'ai-control', label: 'AI Control Center', icon: <Sliders className="w-4 h-4" /> },
     { id: 'discount-optimizer', label: 'Discount Optimizer', icon: <Percent className="w-4 h-4" /> },
     { id: 'analytics', label: 'Revenue Analytics', icon: <BarChart3 className="w-4 h-4" /> },
@@ -46,7 +51,7 @@ export function MerchantSidebar() {
           Merchant Suite
         </div>
 
-        {navItems.slice(0, 3).map((item) => {
+        {suiteNavItems.map((item) => {
           const isActive = merchantTab === item.id;
           return (
             <button
@@ -68,7 +73,7 @@ export function MerchantSidebar() {
           AI Engine
         </div>
 
-        {navItems.slice(3).map((item) => {
+        {aiNavItems.map((item) => {
           const isActive = merchantTab === item.id;
           return (
             <button

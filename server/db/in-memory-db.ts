@@ -92,6 +92,7 @@ export interface InMemoryOrder {
   createdAt: Date;
   updatedAt: Date;
   items?: InMemoryOrderItem[];
+  store?: InMemoryStore | null;
 }
 
 export interface InMemoryCommerceEvent {
@@ -126,6 +127,7 @@ class InMemoryDatabase {
       id: merchantId,
       name: 'OptiCommerce Flagship Merchant',
       email: 'merchant@opticommerce.io',
+      passwordHash: '$2b$10$JDjiAs6jumJe0HLZy4LFIeGrGZ7sWzcS1GU8J9rvPVALp8vuFoSCe',
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -1036,6 +1038,9 @@ export function createInMemoryPrismaProxy() {
             return itemCopy;
           });
         }
+        if (args.include?.store) {
+          result.store = inMemoryDb.stores.get(target!.storeId) || null;
+        }
         return result;
       },
       findMany: async (args?: { where?: any; include?: any; orderBy?: any; select?: any }) => {
@@ -1059,6 +1064,9 @@ export function createInMemoryPrismaProxy() {
               ...item,
               product: args.include?.items?.include?.product ? inMemoryDb.products.get(item.productId) : undefined,
             }));
+          }
+          if (args?.include?.store) {
+            res.store = inMemoryDb.stores.get(o.storeId) || null;
           }
           return applySelect(res, args?.select);
         });

@@ -101,7 +101,6 @@ export function StoreManagement() {
       });
 
       setStore(updatedStore);
-      localStorage.setItem('opticommerce_store_slug', updatedStore.slug);
       setSuccessMessage('Store profile and details updated successfully!');
       
       // Clear success feedback after 4 seconds

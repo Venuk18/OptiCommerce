@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useCommerce } from '../../context/CommerceContext';
 import { merchantDashboardService } from '../../services/merchant-dashboard.service';
-import { MerchantDashboardSummaryData } from '../../types';
+import { MerchantDashboardSummaryData, MerchantOrderData } from '../../types';
 import { FunnelAnalytics } from './FunnelAnalytics';
 import { RevenueInsights } from './RevenueInsights';
 import { 
@@ -17,13 +17,17 @@ import {
   ArrowUpRight,
   ShieldCheck,
   CheckCircle2,
-  HelpCircle
+  HelpCircle,
+  Clock,
+  XCircle,
+  ChevronRight
 } from 'lucide-react';
 
 export function Dashboard() {
   const { store, isStoreLoading, setMerchantTab } = useCommerce();
 
   const [summary, setSummary] = useState<MerchantDashboardSummaryData | null>(null);
+  const [recentOrders, setRecentOrders] = useState<MerchantOrderData[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState<number>(0);
@@ -38,8 +42,12 @@ export function Dashboard() {
     setError(null);
 
     try {
-      const data = await merchantDashboardService.getSummary(store.id);
+      const [data, ordersRes] = await Promise.all([
+        merchantDashboardService.getSummary(store.id),
+        merchantDashboardService.getOrders(store.id, { limit: 5 }).catch(() => ({ orders: [] })),
+      ]);
       setSummary(data);
+      setRecentOrders(ordersRes.orders || []);
     } catch (err: any) {
       console.error('Failed to load merchant dashboard metrics:', err);
       setError(
@@ -379,22 +387,112 @@ export function Dashboard() {
             </div>
           </div>
 
-          {/* Section 6F.4 — Recent Orders Status Note */}
-          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-slate-600" id="recent-orders-deferral-notice">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-500 shrink-0">
-                <ShoppingBag className="w-4 h-4" />
+          {/* Section 6F.4 — Recent Customer Orders Widget (Merchant Order Ledger) */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="recent-orders-deferral-notice">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                  <ShoppingBag className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Merchant Order Ledger</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Recent Customer Orders verified through Razorpay payment settlement.
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-bold text-slate-800">Merchant Order Ledger</p>
-                <p className="text-slate-500 mt-0.5">
-                  Live revenue metrics are aggregated directly from verified payment records. Full merchant order management ledger is scheduled for a future release.
+
+              <button
+                onClick={() => setMerchantTab('orders')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
+              >
+                <span>View All Orders</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {recentOrders.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-500">
+                <p className="font-medium text-slate-700">No customer orders yet</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Verified purchases from your storefront will appear here automatically.
                 </p>
               </div>
-            </div>
-            <span className="px-2.5 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-semibold text-[11px] shrink-0">
-              Aggregated Analytics Live
-            </span>
+            ) : (
+              <div className="overflow-x-auto mt-2">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="text-[10px] uppercase font-semibold text-slate-400 border-b border-slate-100">
+                      <th className="py-2.5 px-2">Order ID</th>
+                      <th className="py-2.5 px-2">Date</th>
+                      <th className="py-2.5 px-2">Payment Status</th>
+                      <th className="py-2.5 px-2">Order State</th>
+                      <th className="py-2.5 px-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {recentOrders.slice(0, 5).map((ord) => {
+                      const isReady = ord.status === 'CONFIRMED' && ord.paymentStatus === 'PAID';
+                      const isPending = ord.status === 'PENDING' && ord.paymentStatus === 'CREATED';
+                      const isCancelled = ord.status === 'CANCELLED';
+
+                      return (
+                        <tr key={ord.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-2.5 px-2 font-mono font-semibold text-slate-800">
+                            #{ord.id.slice(-8).toUpperCase()}
+                          </td>
+                          <td className="py-2.5 px-2 text-slate-500 whitespace-nowrap">
+                            {new Date(ord.createdAt).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                            })}
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                ord.paymentStatus === 'PAID'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : ord.paymentStatus === 'CREATED'
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+                              }`}
+                            >
+                              {ord.paymentStatus}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap">
+                            {isReady && (
+                              <span className="text-emerald-700 font-bold text-[11px] inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                Ready to Process
+                              </span>
+                            )}
+                            {isPending && (
+                              <span className="text-amber-700 font-medium text-[11px] inline-flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                Payment Pending
+                              </span>
+                            )}
+                            {isCancelled && (
+                              <span className="text-slate-500 font-medium text-[11px] inline-flex items-center gap-1">
+                                <XCircle className="w-3 h-3 text-slate-400" />
+                                Cancelled
+                              </span>
+                            )}
+                            {!isReady && !isPending && !isCancelled && (
+                              <span className="text-slate-600 text-[11px]">{ord.status}</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                            ₹{ord.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

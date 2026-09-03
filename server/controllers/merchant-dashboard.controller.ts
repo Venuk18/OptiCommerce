@@ -102,6 +102,89 @@ export class MerchantDashboardController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/merchant-dashboard/orders?storeId=<storeId>&status=<status>&search=<search>&page=<page>&limit=<limit>
+   * Returns paginated customer orders for the merchant's store with status filters and search.
+   */
+  async getOrders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const storeId = await this.validateStoreAccess(req);
+      const { status, search, page, limit } = req.query;
+
+      const result = await merchantDashboardService.getStoreOrders({
+        storeId,
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined,
+        page: page ? parseInt(page as string, 10) : 1,
+        limit: limit ? parseInt(limit as string, 10) : 20,
+      });
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/merchant-dashboard/orders/:orderId
+   * Returns complete merchant-visible order details with verified store ownership.
+   */
+  async getOrderDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.merchant) {
+        throw new AppError('Unauthorized: Merchant authentication required', 401);
+      }
+      const { orderId } = req.params;
+      if (!orderId || typeof orderId !== 'string' || !orderId.trim()) {
+        throw new AppError('orderId is required', 400);
+      }
+
+      const order = await merchantDashboardService.getStoreOrderById(
+        orderId.trim(),
+        req.merchant.id
+      );
+
+      res.status(200).json({
+        success: true,
+        data: order,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/merchant-dashboard/orders/:orderId/cancel
+   * Cancels an order, restores reserved product inventory, and maintains payment invariant.
+   */
+  async cancelOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.merchant) {
+        throw new AppError('Unauthorized: Merchant authentication required', 401);
+      }
+      const { orderId } = req.params;
+      if (!orderId || typeof orderId !== 'string' || !orderId.trim()) {
+        throw new AppError('orderId is required', 400);
+      }
+
+      const order = await merchantDashboardService.cancelStoreOrder(
+        orderId.trim(),
+        req.merchant.id
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Order successfully cancelled and inventory restored',
+        data: order,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const merchantDashboardController = new MerchantDashboardController();

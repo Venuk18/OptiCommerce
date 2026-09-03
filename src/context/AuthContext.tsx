@@ -38,6 +38,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       authService.removeToken();
       setMerchant(null);
       setToken(null);
+      try {
+        localStorage.removeItem('opticommerce_merchant_id');
+      } catch {
+        // ignore
+      }
     } finally {
       setIsLoading(false);
     }
@@ -63,6 +68,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     authService.logout();
     setMerchant(null);
     setToken(null);
+    try {
+      localStorage.removeItem('opticommerce_merchant_id');
+    } catch {
+      // ignore
+    }
   };
 
   const value: AuthContextType = {
