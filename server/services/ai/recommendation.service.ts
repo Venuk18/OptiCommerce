@@ -38,18 +38,26 @@ export class RecommendationService {
         intent,
         recommendations: [],
         products: [],
-        message: 'No matching products found.',
+        message: `No published products matched your search for "${cleanQuery}".`,
       };
     }
 
     // 5. Step 3: AI Product Ranking (Phase 4C)
     const rankingResult = await productRankingService.rankCandidates(intent, candidateProducts);
 
+    const recommendedProductIds = new Set(rankingResult.rankedProducts.map((r) => r.productId));
+    const recommendedCandidateProducts = candidateProducts.filter((p) => recommendedProductIds.has(p.id));
+
+    const message = rankingResult.rankedProducts.length === 0
+      ? `No published products matched your search for "${cleanQuery}".`
+      : undefined;
+
     return {
       query: cleanQuery,
       intent,
       recommendations: rankingResult.rankedProducts,
-      products: candidateProducts,
+      products: recommendedCandidateProducts,
+      message,
     };
   }
 }

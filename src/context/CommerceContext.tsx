@@ -611,20 +611,29 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  // Real recommendations from the latest AI shopping turn
+  const latestAiTurn = aiChatTurns.length > 0 ? aiChatTurns[aiChatTurns.length - 1] : null;
+  const activeRecommendedProducts = useMemo<Product[]>(() => {
+    if (latestAiTurn && Array.isArray(latestAiTurn.recommendedProducts)) {
+      return latestAiTurn.recommendedProducts;
+    }
+    return [];
+  }, [latestAiTurn]);
+
   // Recommendations filtering based on current query & feedback pills
-  const filteredRecommendations = products.filter(p => {
-    if (!p.isLive) return false;
+  const filteredRecommendations = useMemo(() => {
+    let list = activeRecommendedProducts;
     if (searchFilterAdjustment === 'too-expensive') {
-      return p.basePrice <= 3500;
+      list = list.filter((p) => p.basePrice <= 3500);
     }
     if (searchFilterAdjustment === 'dont-like-design') {
-      return p.category === 'Audio';
+      list = list.filter((p) => p.category === 'Audio');
     }
     if (searchFilterAdjustment === 'need-better-features') {
-      return p.rating >= 4.5;
+      list = list.filter((p) => (p.rating || 0) >= 4.5);
     }
-    return true;
-  });
+    return list;
+  }, [activeRecommendedProducts, searchFilterAdjustment]);
 
   const addToCart = (
     product: Product,

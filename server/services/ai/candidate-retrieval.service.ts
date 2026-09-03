@@ -4,6 +4,7 @@ import { AppError } from '../../errors/app.error';
 import { CustomerIntent } from '../../types/intent.types';
 import { CandidateProduct, SearchCandidatesResult } from '../../types/search.types';
 
+export const RELEVANCE_MIN_THRESHOLD = 30;
 const MAX_CANDIDATES_LIMIT = 10;
 
 const GENERIC_STOP_WORDS = new Set([
@@ -25,6 +26,82 @@ const GENERIC_STOP_WORDS = new Set([
   'item', 'items', 'product', 'products', 'thing', 'things'
 ]);
 
+// Primary device categories that must never match accessories unless the user explicitly requested accessories
+const PRIMARY_DEVICE_CATEGORIES = new Set([
+  'earbuds', 'headphones', 'earphones', 'laptops', 'laptop', 'cameras', 'camera',
+  'smartphones', 'smartphone', 'phones', 'phone', 'mobile', 'monitors', 'monitor',
+  'smartwatches', 'smartwatch'
+]);
+
+const ACCESSORY_KEYWORDS = [
+  'case', 'sleeve', 'cover', 'protector', 'tempered glass', 'guard',
+  'charger', 'hub', 'dock', 'mouse', 'adapter', 'cable', 'bag'
+];
+
+/**
+ * Checks if a catalog product is an accessory rather than a standalone primary device.
+ */
+export function isAccessoryProduct(product: { name: string; category?: string | null; tags?: string[] | null }): boolean {
+  const cat = (product.category || '').toLowerCase().trim();
+  if (cat === 'accessories') return true;
+
+  const name = (product.name || '').toLowerCase();
+  const tags = (product.tags || []).map((t) => t.toLowerCase());
+
+  if (ACCESSORY_KEYWORDS.some((kw) => new RegExp(`\\b${kw}\\b`, 'i').test(name))) {
+    return true;
+  }
+  if (tags.some((t) => ACCESSORY_KEYWORDS.some((kw) => t.includes(kw)))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Determines whether the customer's intent specifically asks for an accessory.
+ */
+export function queryRequestsAccessory(intent: CustomerIntent): boolean {
+  const cat = (intent.category || '').toLowerCase().trim();
+  const kwList = (intent.keywords || []).map((k) => k.toLowerCase().trim());
+  const prefList = (intent.preferences || []).map((p) => p.toLowerCase().trim());
+  const allTokens = [cat, ...kwList, ...prefList].join(' ');
+
+  const accessorySearchTerms = [
+    'case', 'cases', 'sleeve', 'sleeves', 'cover', 'covers', 'protector',
+    'screen protector', 'tempered glass', 'guard', 'charger', 'chargers',
+    'charging', 'gan', 'power adapter', 'hub', 'hubs', 'dock', 'docking station',
+    'mouse', 'mice', 'trackpad', 'cable', 'cables', 'bag', 'laptop bag',
+    'accessory', 'accessories'
+  ];
+
+  return accessorySearchTerms.some((term) => new RegExp(`\\b${term}\\b`, 'i').test(allTokens));
+}
+
+/**
+ * Checks whether the intent is a generic/broad browse request.
+ */
+export function isGenericBrowseIntent(intent: CustomerIntent): boolean {
+  if (intent.category && intent.category.trim()) {
+    const c = intent.category.toLowerCase().trim();
+    if (!['all', 'general', 'products', 'items', 'store', 'shop'].includes(c)) {
+      return false;
+    }
+  }
+  if (intent.brand && intent.brand.trim()) {
+    return false;
+  }
+  const substantiveKeywords = (intent.keywords || []).filter(
+    (kw) => !GENERIC_STOP_WORDS.has(kw.toLowerCase().trim())
+  );
+  if (substantiveKeywords.length > 0) {
+    return false;
+  }
+  if (intent.preferences && intent.preferences.length > 0) {
+    return false;
+  }
+  return true;
+}
+
 export class CandidateRetrievalService {
   /**
    * Retrieves and ranks candidate products deterministically for a given store and customer intent.
@@ -39,6 +116,11 @@ export class CandidateRetrievalService {
 
     // 2. Validate CustomerIntent structure
     this.validateIntent(intent);
+
+    const isGeneric = isGenericBrowseIntent(intent);
+    const userWantsAccessory = queryRequestsAccessory(intent);
+    const intentCategoryLower = (intent.category || '').toLowerCase().trim();
+    const isPrimaryCategory = PRIMARY_DEVICE_CATEGORIES.has(intentCategoryLower);
 
     // 3. Build Prisma where clause with hard filters
     const where: Prisma.ProductWhereInput = {
@@ -64,25 +146,30 @@ export class CandidateRetrievalService {
       };
     }
 
-    // Hard category filtering (normalized / case-insensitive with category family mapping)
-    if (intent.category && typeof intent.category === 'string' && intent.category.trim()) {
+    // Disciplined category filtering (strictly separate primary categories from accessories)
+    if (!isGeneric && intent.category && typeof intent.category === 'string' && intent.category.trim()) {
       const cat = intent.category.trim().toLowerCase();
       const singularCat = cat.endsWith('s') ? cat.slice(0, -1) : cat;
       const pluralCat = cat.endsWith('s') ? cat : `${cat}s`;
 
       const CATEGORY_SYNONYMS: Record<string, string[]> = {
-        earbuds: ['earbuds', 'earbud', 'audio', 'headphones', 'earphones', 'tws', 'sound', 'pods'],
-        headphones: ['headphones', 'headphone', 'audio', 'earbuds', 'earphones', 'sound'],
-        earphones: ['earphones', 'earphone', 'audio', 'earbuds', 'headphones', 'sound'],
-        audio: ['audio', 'earbuds', 'headphones', 'earphones', 'speakers', 'sound'],
-        speakers: ['speakers', 'speaker', 'audio', 'soundbar', 'sound'],
-        laptops: ['laptops', 'laptop', 'notebook', 'electronics', 'computers'],
-        electronics: ['electronics', 'laptops', 'cameras', 'monitors', 'audio'],
-        accessories: ['accessories', 'chargers', 'cables', 'lighting', 'desk'],
-        chargers: ['chargers', 'charger', 'accessories', 'power', 'gan'],
-        cameras: ['cameras', 'camera', 'electronics', 'photography'],
+        earbuds: ['earbuds', 'earbud', 'earphones', 'earphone', 'tws', 'true wireless', 'in-ear', 'pods', 'zenpods'],
+        headphones: ['headphones', 'headphone', 'headset', 'over-ear', 'on-ear'],
+        earphones: ['earphones', 'earphone', 'in-ear', 'neckband', 'earbuds', 'earbud', 'tws'],
+        audio: ['audio', 'sound', 'speaker', 'soundbar'],
+        speakers: ['speakers', 'speaker', 'soundbar'],
+        laptops: ['laptops', 'laptop', 'notebook', 'notebooks', 'ultrabook', 'macbook'],
+        electronics: ['electronics'],
+        cameras: ['cameras', 'camera', 'mirrorless', 'dslr', 'photography'],
+        smartphones: ['smartphone', 'smartphones', 'phone', 'phones', 'mobile', 'galaxy'],
+        chargers: ['chargers', 'charger', 'gan', 'fast charger', 'power adapter'],
+        mice: ['mouse', 'mice', 'wireless mouse', 'optical mouse'],
+        cases: ['phone case', 'protective case', 'case', 'cover', 'mobile cover', 'silicone case', 'earbuds case'],
+        sleeves: ['laptop sleeve', 'sleeve', 'laptop bag', 'carrying case'],
+        hubs: ['usb-c hub', 'usb hub', 'hub', 'dock', 'docking station'],
         smartwatches: ['smartwatches', 'smartwatch', 'wearables', 'watch', 'fitness'],
-        wearables: ['wearables', 'smartwatches', 'watch', 'fitness'],
+        lighting: ['lamp', 'desk light', 'task lamp', 'light'],
+        accessories: ['accessories', 'chargers', 'cables', 'hub', 'mouse', 'sleeve', 'case'],
       };
 
       const synonyms = CATEGORY_SYNONYMS[cat] || CATEGORY_SYNONYMS[singularCat] || [cat, singularCat, pluralCat];
@@ -121,13 +208,22 @@ export class CandidateRetrievalService {
         tags: true,
         storeId: true,
         status: true,
-        // CRITICAL: costPrice is NOT selected to prevent any merchant-sensitive data exposure
       },
     });
 
-    // 5. Score candidates deterministically
-    const scoredCandidates: CandidateProduct[] = rawProducts.map((product) => {
-      const score = this.calculateRelevanceScore(product, intent);
+    // 5. Filter out accessories if the user asked for a primary device and NOT an accessory
+    const filteredProducts = rawProducts.filter((product) => {
+      const isAcc = isAccessoryProduct(product);
+      if (isPrimaryCategory && !userWantsAccessory && isAcc) {
+        // Disallow accessories from being treated as primary devices (e.g. phone case / silicone case as earbuds or laptop)
+        return false;
+      }
+      return true;
+    });
+
+    // 6. Score candidates deterministically
+    const scoredCandidates: CandidateProduct[] = filteredProducts.map((product) => {
+      const score = this.calculateRelevanceScore(product, intent, isGeneric);
       return {
         id: product.id,
         name: product.name,
@@ -144,8 +240,12 @@ export class CandidateRetrievalService {
       };
     });
 
-    // 6. Sort by relevanceScore DESC, then price ASC, then id ASC
-    scoredCandidates.sort((a, b) => {
+    // 7. Prune weak candidates using RELEVANCE_MIN_THRESHOLD
+    // Price alone is not sufficient relevance; items must satisfy real query criteria
+    const validCandidates = scoredCandidates.filter((candidate) => candidate.relevanceScore >= RELEVANCE_MIN_THRESHOLD);
+
+    // 8. Sort by relevanceScore DESC, then price ASC, then id ASC
+    validCandidates.sort((a, b) => {
       if (b.relevanceScore !== a.relevanceScore) {
         return b.relevanceScore - a.relevanceScore;
       }
@@ -155,8 +255,8 @@ export class CandidateRetrievalService {
       return a.id.localeCompare(b.id);
     });
 
-    // 7. Enforce maximum result limit
-    const limitedCandidates = scoredCandidates.slice(0, MAX_CANDIDATES_LIMIT);
+    // 9. Enforce maximum result limit
+    const limitedCandidates = validCandidates.slice(0, MAX_CANDIDATES_LIMIT);
 
     return {
       products: limitedCandidates,
@@ -177,9 +277,15 @@ export class CandidateRetrievalService {
       specifications: any;
       tags: string[];
     },
-    intent: CustomerIntent
+    intent: CustomerIntent,
+    isGeneric: boolean = false
   ): number {
-    let score = 10; // Baseline score for matching hard filters
+    // If generic browse, assign solid baseline score to surface popular/affordable items
+    if (isGeneric) {
+      return 65;
+    }
+
+    let score = 0; // Baseline starts at 0 for specific queries to ensure relevance
 
     const prodName = product.name.toLowerCase();
     const prodDesc = (product.description || '').toLowerCase();
@@ -187,7 +293,7 @@ export class CandidateRetrievalService {
     const prodBrand = (product.brand || '').toLowerCase();
     const prodTags = (product.tags || []).map((t) => t.toLowerCase());
     const prodFeatures = (product.features || []).map((f) => f.toLowerCase());
-    
+
     // Parse specifications text
     let prodSpecsText = '';
     if (product.specifications && typeof product.specifications === 'object') {
@@ -201,31 +307,30 @@ export class CandidateRetrievalService {
       }
     }
 
-    // 1. Category Matching (High Weight: +25 pts)
+    // 1. Category Matching (High Weight: +30 pts)
     if (intent.category) {
       const intentCat = intent.category.toLowerCase().trim();
       const singularCat = intentCat.endsWith('s') ? intentCat.slice(0, -1) : intentCat;
       if (prodCat === intentCat || prodCat.includes(singularCat)) {
+        score += 30;
+      } else if (new RegExp(`\\b${singularCat}\\b`, 'i').test(prodName) || prodName.includes(singularCat)) {
         score += 25;
-      } else if (prodName.includes(singularCat)) {
-        score += 20;
       } else if (prodTags.some((t) => t.includes(singularCat))) {
-        score += 15;
+        score += 20;
       }
     }
 
-    // 2. Brand Matching (Weight: +20 pts)
+    // 2. Brand Matching (Weight: +25 pts)
     if (intent.brand) {
       const intentBrand = intent.brand.toLowerCase().trim();
       if (prodBrand === intentBrand) {
         score += 25;
       } else if (prodName.includes(intentBrand)) {
-        score += 15;
+        score += 18;
       }
     }
 
     // 3. Multi-word Preferences Matching (High Weight)
-    // Example: "strong bass", "good battery life", "active noise cancellation"
     for (const pref of intent.preferences || []) {
       const cleanPref = pref.toLowerCase().trim();
       if (!cleanPref) continue;
@@ -238,9 +343,9 @@ export class CandidateRetrievalService {
         prefMatched = true;
       }
 
-      // Match in features (+20 pts)
+      // Match in features (+22 pts)
       if (prodFeatures.some((f) => f.includes(cleanPref))) {
-        score += 20;
+        score += 22;
         prefMatched = true;
       }
 
@@ -250,30 +355,30 @@ export class CandidateRetrievalService {
         prefMatched = true;
       }
 
-      // Match in description (+10 pts)
+      // Match in description (+12 pts)
       if (prodDesc.includes(cleanPref)) {
+        score += 12;
+        prefMatched = true;
+      }
+
+      // Match in specifications (+10 pts)
+      if (prodSpecsText.includes(cleanPref)) {
         score += 10;
         prefMatched = true;
       }
 
-      // Match in specifications (+8 pts)
-      if (prodSpecsText.includes(cleanPref)) {
-        score += 8;
-        prefMatched = true;
-      }
-
-      // If full multi-word phrase didn't match directly, match individual domain keywords from preference
+      // If full multi-word phrase didn't match directly, match individual substantive words from preference
       if (!prefMatched) {
         const prefWords = cleanPref
           .split(/\s+/)
           .filter((w) => w.length >= 3 && !GENERIC_STOP_WORDS.has(w));
 
         for (const word of prefWords) {
-          if (prodName.includes(word)) score += 12;
-          else if (prodFeatures.some((f) => f.includes(word))) score += 8;
-          else if (prodTags.some((t) => t.includes(word))) score += 6;
-          else if (prodDesc.includes(word)) score += 4;
-          else if (prodSpecsText.includes(word)) score += 3;
+          if (new RegExp(`\\b${word}\\b`, 'i').test(prodName)) score += 14;
+          else if (prodFeatures.some((f) => new RegExp(`\\b${word}\\b`, 'i').test(f))) score += 10;
+          else if (prodTags.some((t) => new RegExp(`\\b${word}\\b`, 'i').test(t))) score += 8;
+          else if (new RegExp(`\\b${word}\\b`, 'i').test(prodDesc)) score += 5;
+          else if (prodSpecsText.includes(word)) score += 4;
         }
       }
     }
@@ -285,39 +390,41 @@ export class CandidateRetrievalService {
         continue;
       }
 
-      // Exact token in Name (+20 pts)
-      if (new RegExp(`\\b${cleanKw}\\b`, 'i').test(prodName) || prodName.includes(cleanKw)) {
-        score += 20;
+      // Exact token in Name (+22 pts)
+      if (new RegExp(`\\b${cleanKw}\\b`, 'i').test(prodName)) {
+        score += 22;
+      } else if (prodName.includes(cleanKw)) {
+        score += 16;
       }
 
-      // In Category (+15 pts)
+      // In Category (+18 pts)
       if (prodCat.includes(cleanKw)) {
-        score += 15;
+        score += 18;
       }
 
-      // In Tags (+12 pts)
-      if (prodTags.some((t) => t.includes(cleanKw))) {
+      // In Tags (+14 pts)
+      if (prodTags.some((t) => new RegExp(`\\b${cleanKw}\\b`, 'i').test(t) || t.includes(cleanKw))) {
+        score += 14;
+      }
+
+      // In Features (+12 pts)
+      if (prodFeatures.some((f) => new RegExp(`\\b${cleanKw}\\b`, 'i').test(f) || f.includes(cleanKw))) {
         score += 12;
       }
 
-      // In Features (+10 pts)
-      if (prodFeatures.some((f) => f.includes(cleanKw))) {
+      // In Brand (+10 pts)
+      if (prodBrand.includes(cleanKw)) {
         score += 10;
       }
 
-      // In Brand (+8 pts)
-      if (prodBrand.includes(cleanKw)) {
+      // In Description (+8 pts)
+      if (new RegExp(`\\b${cleanKw}\\b`, 'i').test(prodDesc) || prodDesc.includes(cleanKw)) {
         score += 8;
       }
 
-      // In Description (+6 pts)
-      if (prodDesc.includes(cleanKw)) {
-        score += 6;
-      }
-
-      // In Specifications (+4 pts)
+      // In Specifications (+5 pts)
       if (prodSpecsText.includes(cleanKw)) {
-        score += 4;
+        score += 5;
       }
     }
 

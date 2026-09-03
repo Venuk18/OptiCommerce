@@ -3,8 +3,10 @@ import { CustomerIntent } from '../../types/intent.types';
 import { CandidateProduct } from '../../types/search.types';
 import { RankedProduct, RankProductsResult } from '../../types/ranking.types';
 import { getGeminiClient } from './gemini.client';
+import { RELEVANCE_MIN_THRESHOLD } from './candidate-retrieval.service';
 
 const MAX_CANDIDATES = 10;
+const MAX_RECOMMENDED_LIMIT = 5;
 const GEMINI_TIMEOUT_MS = 6000;
 
 export class ProductRankingService {
@@ -82,8 +84,11 @@ RANKING CRITERIA:
 5. Product description, features, and specifications.
 
 STRICT INSTRUCTIONS:
-- Rank ALL candidate products in order of relevance to the customer (rank 1 = top match).
-- Assign a matchScore from 0 to 100 for each product.
+- Rank ONLY candidate products that genuinely match the customer's request.
+- Discard candidate products that do not match the customer's primary product type, category, or budget.
+- Return at most 5 recommendations, ideally top 3.
+- If NONE of the candidates are truly relevant, return an empty array: "rankedProducts": [].
+- Assign an honest matchScore from 0 to 100 for each recommended product.
 - Provide a concise, customer-friendly explanation (1-2 sentences) in the "reason" field explaining why this product satisfies their query.
 - NEVER invent new product IDs, names, or specifications. Use ONLY the given product IDs.`;
 
@@ -132,15 +137,20 @@ STRICT INSTRUCTIONS:
       return null;
     }
 
-    return parsed.rankedProducts;
+    return parsed.rankedProducts.slice(0, MAX_RECOMMENDED_LIMIT);
   }
 
   /**
    * Strict anti-hallucination validation on Gemini's ranking output.
    */
   public validateAiRankings(rankedList: any[], candidates: CandidateProduct[]): boolean {
-    if (!Array.isArray(rankedList) || rankedList.length === 0) {
+    if (!Array.isArray(rankedList)) {
       return false;
+    }
+
+    // An empty list is valid when no candidates are truly relevant
+    if (rankedList.length === 0) {
+      return true;
     }
 
     const candidateMap = new Map<string, CandidateProduct>();
@@ -197,15 +207,27 @@ STRICT INSTRUCTIONS:
 
   /**
    * Deterministic fallback ranking algorithm based on Phase 4B relevance scores.
+   * Discards irrelevant candidates (relevanceScore < RELEVANCE_MIN_THRESHOLD)
+   * rather than artificially boosting them to high match percentages.
    */
   public deterministicFallbackRanking(
     intent: CustomerIntent,
     candidates: CandidateProduct[]
   ): RankedProduct[] {
-    // Clone candidates and sort by relevanceScore descending, then price ascending, then id
-    const sorted = [...candidates].sort((a, b) => {
-      const scoreA = typeof a.relevanceScore === 'number' && !isNaN(a.relevanceScore) ? a.relevanceScore : 50;
-      const scoreB = typeof b.relevanceScore === 'number' && !isNaN(b.relevanceScore) ? b.relevanceScore : 50;
+    // 1. Filter candidates to only those satisfying minimum relevance threshold
+    const qualifyingCandidates = candidates.filter((c) => {
+      const score = typeof c.relevanceScore === 'number' && !isNaN(c.relevanceScore) ? c.relevanceScore : 0;
+      return score >= RELEVANCE_MIN_THRESHOLD;
+    });
+
+    if (qualifyingCandidates.length === 0) {
+      return [];
+    }
+
+    // 2. Sort by relevanceScore descending, then price ascending, then id
+    const sorted = [...qualifyingCandidates].sort((a, b) => {
+      const scoreA = typeof a.relevanceScore === 'number' && !isNaN(a.relevanceScore) ? a.relevanceScore : 0;
+      const scoreB = typeof b.relevanceScore === 'number' && !isNaN(b.relevanceScore) ? b.relevanceScore : 0;
       if (scoreB !== scoreA) {
         return scoreB - scoreA;
       }
@@ -217,21 +239,32 @@ STRICT INSTRUCTIONS:
       return (a.id || '').localeCompare(b.id || '');
     });
 
-    const maxScore = sorted.length > 0
-      ? Math.max(...sorted.map((s) => (typeof s.relevanceScore === 'number' && !isNaN(s.relevanceScore) ? s.relevanceScore : 50)), 1)
-      : 1;
+    // 3. Limit to top 3-5 recommendations
+    const topCandidates = sorted.slice(0, MAX_RECOMMENDED_LIMIT);
 
-    return sorted.map((product, idx) => {
-      const relScore = typeof product.relevanceScore === 'number' && !isNaN(product.relevanceScore) ? product.relevanceScore : 50;
-      // Scale relevance score to a 60–98 match score range deterministically
-      const normalizedRatio = Math.max(0, Math.min(1, relScore / Math.max(maxScore, 100)));
-      const matchScore = Math.min(98, Math.max(50, Math.round(60 + normalizedRatio * 38)));
+    return topCandidates.map((product, idx) => {
+      const relScore = typeof product.relevanceScore === 'number' && !isNaN(product.relevanceScore) ? product.relevanceScore : 30;
+
+      // Authentic match score calculation based on true relevanceScore
+      let matchScore: number;
+      if (relScore >= 65) {
+        // High match
+        matchScore = Math.min(98, Math.max(88, 88 + Math.round(((relScore - 65) / 35) * 10)));
+      } else if (relScore >= 45) {
+        // Good match
+        matchScore = Math.min(87, Math.max(78, 78 + Math.round(((relScore - 45) / 20) * 9)));
+      } else if (relScore >= 30) {
+        // Moderate match
+        matchScore = Math.min(77, Math.max(65, 65 + Math.round(((relScore - 30) / 15) * 12)));
+      } else {
+        matchScore = Math.min(64, Math.max(40, relScore));
+      }
 
       // Construct clean, informative reason
-      let reason = `Matches your search for ${intent.category || 'items'}`;
+      let reason = `Matches your search for ${intent.category || product.category || 'items'}`;
       const prodPrice = typeof product.price === 'number' && !isNaN(product.price) ? product.price : 0;
       if (intent.maxPrice && prodPrice <= intent.maxPrice) {
-        reason += ` at ₹${prodPrice.toLocaleString('en-IN')}, well within your ₹${intent.maxPrice.toLocaleString('en-IN')} budget.`;
+        reason += ` at ₹${prodPrice.toLocaleString('en-IN')}, within your ₹${intent.maxPrice.toLocaleString('en-IN')} budget.`;
       } else if (prodPrice > 0) {
         reason += ` at ₹${prodPrice.toLocaleString('en-IN')}.`;
       }
@@ -243,7 +276,7 @@ STRICT INSTRUCTIONS:
           product.tags?.some((t) => t.toLowerCase().includes(p.toLowerCase()))
         );
         if (matchingPrefs.length > 0) {
-          reason += ` Highlights: ${matchingPrefs.join(', ')}.`;
+          reason += ` Features: ${matchingPrefs.join(', ')}.`;
         }
       }
 

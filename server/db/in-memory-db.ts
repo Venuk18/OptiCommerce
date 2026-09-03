@@ -477,10 +477,18 @@ function matchesFilter(val: any, filter: any): boolean {
       if (filter.notIn.includes(val)) return false;
     }
     if (filter.equals !== undefined) {
-      if (val !== filter.equals) return false;
+      if (filter.mode === 'insensitive' && typeof val === 'string' && typeof filter.equals === 'string') {
+        if (val.toLowerCase() !== filter.equals.toLowerCase()) return false;
+      } else {
+        if (val !== filter.equals) return false;
+      }
     }
     if (filter.not !== undefined) {
-      if (val === filter.not) return false;
+      if (typeof filter.not === 'object' && filter.not !== null) {
+        if (matchesFilter(val, filter.not)) return false;
+      } else if (val === filter.not) {
+        return false;
+      }
     }
     if (filter.gte !== undefined) {
       const v = val instanceof Date ? val.getTime() : typeof val === 'string' && !isNaN(Date.parse(val)) ? new Date(val).getTime() : Number(val);
@@ -507,6 +515,24 @@ function matchesFilter(val: any, filter: any): boolean {
       const strSub = String(filter.contains).toLowerCase();
       if (!strVal.includes(strSub)) return false;
     }
+    if (filter.has !== undefined) {
+      if (!Array.isArray(val)) return false;
+      const target = String(filter.has).toLowerCase();
+      const hasItem = val.some((elem: any) => String(elem).toLowerCase() === target || String(elem).toLowerCase().includes(target));
+      if (!hasItem) return false;
+    }
+    if (Array.isArray(filter.hasSome)) {
+      if (!Array.isArray(val)) return false;
+      const targetSet = new Set(filter.hasSome.map((x: any) => String(x).toLowerCase()));
+      const hasSomeItem = val.some((elem: any) => targetSet.has(String(elem).toLowerCase()));
+      if (!hasSomeItem) return false;
+    }
+    if (Array.isArray(filter.hasEvery)) {
+      if (!Array.isArray(val)) return false;
+      const valSet = new Set(val.map((elem: any) => String(elem).toLowerCase()));
+      const hasEveryItem = filter.hasEvery.every((x: any) => valSet.has(String(x).toLowerCase()));
+      if (!hasEveryItem) return false;
+    }
     return true;
   }
 
@@ -514,6 +540,49 @@ function matchesFilter(val: any, filter: any): boolean {
     return val.getTime() === filter.getTime();
   }
   return val === filter;
+}
+
+export function matchesWhere(item: any, where: any): boolean {
+  if (!where || typeof where !== 'object') return true;
+
+  for (const [k, v] of Object.entries(where)) {
+    if (v === undefined) continue;
+
+    if (k === 'OR') {
+      if (Array.isArray(v)) {
+        if (v.length === 0) continue;
+        const matched = v.some((cond) => matchesWhere(item, cond));
+        if (!matched) return false;
+      }
+      continue;
+    }
+
+    if (k === 'AND') {
+      if (Array.isArray(v)) {
+        const matched = v.every((cond) => matchesWhere(item, cond));
+        if (!matched) return false;
+      } else if (typeof v === 'object' && v !== null) {
+        if (!matchesWhere(item, v)) return false;
+      }
+      continue;
+    }
+
+    if (k === 'NOT') {
+      if (Array.isArray(v)) {
+        const matched = v.some((cond) => matchesWhere(item, cond));
+        if (matched) return false;
+      } else if (typeof v === 'object' && v !== null) {
+        if (matchesWhere(item, v)) return false;
+      }
+      continue;
+    }
+
+    if (!matchesFilter((item as any)[k], v)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function applySelect(obj: any, select: any) {
@@ -651,13 +720,7 @@ export function createInMemoryPrismaProxy() {
       },
       findFirst: async (args?: { where?: any; include?: any; select?: any }) => {
         for (const s of inMemoryDb.stores.values()) {
-          let match = true;
-          if (args?.where) {
-            for (const [k, v] of Object.entries(args.where)) {
-              if (!matchesFilter((s as any)[k], v)) match = false;
-            }
-          }
-          if (match) {
+          if (matchesWhere(s, args?.where)) {
             const result: any = { ...s };
             if (args?.include?.merchant) {
               result.merchant = inMemoryDb.merchants.get(s.merchantId) || null;
@@ -712,25 +775,14 @@ export function createInMemoryPrismaProxy() {
       },
       findFirst: async (args?: { where?: any }) => {
         for (const p of inMemoryDb.products.values()) {
-          let match = true;
-          if (args?.where) {
-            for (const [k, v] of Object.entries(args.where)) {
-              if (!matchesFilter((p as any)[k], v)) match = false;
-            }
-          }
-          if (match) return { ...p };
+          if (matchesWhere(p, args?.where)) return { ...p };
         }
         return null;
       },
       findMany: async (args?: { where?: any; orderBy?: any; take?: number; skip?: number; select?: any }) => {
         let list = Array.from(inMemoryDb.products.values());
         if (args?.where) {
-          list = list.filter((p) => {
-            for (const [k, v] of Object.entries(args.where)) {
-              if (!matchesFilter((p as any)[k], v)) return false;
-            }
-            return true;
-          });
+          list = list.filter((p) => matchesWhere(p, args.where));
         }
         if (args?.orderBy?.createdAt === 'desc') {
           list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -1046,12 +1098,7 @@ export function createInMemoryPrismaProxy() {
       findMany: async (args?: { where?: any; include?: any; orderBy?: any; select?: any }) => {
         let orders = Array.from(inMemoryDb.orders.values());
         if (args?.where) {
-          orders = orders.filter((o) => {
-            for (const [k, v] of Object.entries(args.where)) {
-              if (!matchesFilter((o as any)[k], v)) return false;
-            }
-            return true;
-          });
+          orders = orders.filter((o) => matchesWhere(o, args.where));
         }
         if (args?.orderBy?.createdAt === 'desc') {
           orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
