@@ -1,6 +1,8 @@
 import { CustomerIntent, IntentMode } from './intent.types';
 import { CandidateProduct } from './search.types';
 import { RankedProduct } from './ranking.types';
+import { ProductComparisonResult } from './comparison.types';
+import { CartCrossSellResult, BundleOpportunity } from './bundle.types';
 
 export interface DiscussedProduct {
   id: string;
@@ -66,4 +68,7 @@ export interface RecommendProductsResult {
   conversationState?: ConversationState;
   mode?: IntentMode;
   resolvedProducts?: DiscussedProduct[];
+  comparison?: ProductComparisonResult;
+  crossSell?: CartCrossSellResult;
+  bundleOpportunity?: BundleOpportunity | null;
 }

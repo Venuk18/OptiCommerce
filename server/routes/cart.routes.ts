@@ -9,6 +9,9 @@ router.get('/', (req, res, next) => cartController.getCart(req, res, next));
 // POST /api/cart/bundles - Deterministic complementary product bundle / cross-sell suggestions
 router.post('/bundles', (req, res, next) => cartController.getBundleSuggestions(req, res, next));
 
+// POST /api/cart/cross-sell - Cart-aware cross-sell & intelligent bundling suggestions
+router.post('/cross-sell', (req, res, next) => cartController.getCartCrossSell(req, res, next));
+
 // POST /api/cart/items - Add an item to cart
 router.post('/items', (req, res, next) => cartController.addItem(req, res, next));
 

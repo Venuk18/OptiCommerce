@@ -5,7 +5,9 @@ export type IntentMode =
   | 'PRODUCT_REFERENCE'
   | 'COMPARISON_REQUEST'
   | 'DISSATISFACTION'
-  | 'CLARIFICATION_ANSWER';
+  | 'CLARIFICATION_ANSWER'
+  | 'CROSS_SELL_REQUEST'
+  | 'BUNDLE_REQUEST';
 
 export type DissatisfactionReason =
   | 'PRICE'

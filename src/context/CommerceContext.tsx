@@ -24,6 +24,7 @@ import { storeService } from '../services/store.service';
 import { merchantService } from '../services/merchant.service';
 import { productService } from '../services/product.service';
 import { recommendationService } from '../services/recommendation.service';
+import { comparisonService } from '../services/comparison.service';
 import { eventService, getAnonymousSessionId } from '../services/event.service';
 import { cartService } from '../services/cart.service';
 import { orderService } from '../services/order.service';
@@ -106,6 +107,7 @@ interface CommerceContextType {
   setConversationState: React.Dispatch<React.SetStateAction<ConversationState>>;
   resetConversationState: () => void;
   askAIAssistant: (prompt: string) => Promise<void>;
+  compareProducts: (productIds: string[]) => Promise<void>;
   isAISearchLoading: boolean;
   aiSearchError: string | null;
   lastRecommendationResponse: RecommendationResponse | null;
@@ -536,6 +538,9 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         totalFound: recommendedList.length,
         recommendedProducts: recommendedList,
         suggestedFollowUps: followUps,
+        comparisonData: (response as any).comparison,
+        crossSell: response.crossSell,
+        bundleOpportunity: response.bundleOpportunity,
       };
 
       setAiChatTurns((prev) => [...prev, newTurn]);
@@ -556,6 +561,93 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
           'Show featured products',
           'Retry search',
         ],
+      };
+      setAiChatTurns((prev) => [...prev, errorTurn]);
+    } finally {
+      setIsAISearchLoading(false);
+    }
+  };
+
+  const compareProducts = async (productIds: string[]) => {
+    const storeIdToUse = customerStore?.id || store?.id;
+    if (!storeIdToUse) {
+      setAiSearchError('No active store found for product comparison.');
+      return;
+    }
+
+    if (!productIds || productIds.length < 2) {
+      return;
+    }
+
+    const turnId = `turn-${Date.now()}`;
+    const cleanPrompt = `Compare these ${productIds.length} & suggest me the best`;
+
+    setIsAISearchLoading(true);
+    setAiSearchError(null);
+
+    try {
+      const response = await comparisonService.compare({
+        storeId: storeIdToUse,
+        productIds,
+        conversationState,
+        query: cleanPrompt,
+      });
+
+      if (response.conversationState) {
+        setConversationState(response.conversationState);
+      }
+
+      // Map comparison products to client Product models
+      const comparedProductList: Product[] = [];
+      for (const compProd of response.comparison.products) {
+        let matched = products.find((p) => p.id === compProd.productId);
+        if (!matched) {
+          matched = (await loadProductDetails(compProd.productId)) || undefined;
+        }
+        if (matched) {
+          comparedProductList.push({
+            ...matched,
+            keyAdvantage: compProd.strengths?.[0] || matched.keyAdvantage,
+            tradeoff: compProd.tradeoff || matched.tradeoff,
+            whyRecommended: compProd.fitSummary || matched.whyRecommended,
+            matchBadge: compProd.productId === response.comparison.winnerProductId ? 'Best for you' : 'Contender',
+            matchBadgeColor: compProd.productId === response.comparison.winnerProductId ? 'blue' : 'purple',
+          });
+        }
+      }
+
+      const newTurn: AIChatTurn = {
+        id: turnId,
+        userPrompt: cleanPrompt,
+        assistantSummary: response.message,
+        highlightNote: response.comparison.winnerProductId
+          ? `Top recommendation: ${comparedProductList.find((p) => p.id === response.comparison.winnerProductId)?.name || 'Winner selected'}`
+          : undefined,
+        totalFound: comparedProductList.length,
+        recommendedProducts: comparedProductList,
+        comparisonData: response.comparison,
+        suggestedFollowUps: [
+          'Tell me more about the winner',
+          'Why did you choose this one?',
+          'What are the downsides?',
+          'Add winner to cart',
+        ],
+      };
+
+      setAiChatTurns((prev) => [...prev, newTurn]);
+    } catch (err: any) {
+      console.error('AI Comparison Error:', err);
+      const errorMsg = err?.message || 'Unable to compare products at this time.';
+      setAiSearchError(errorMsg);
+
+      const errorTurn: AIChatTurn = {
+        id: turnId,
+        userPrompt: cleanPrompt,
+        assistantSummary: `We couldn't compare these products at this moment.`,
+        highlightNote: 'Please retry or ask a specific product question.',
+        totalFound: 0,
+        recommendedProducts: [],
+        suggestedFollowUps: ['Show recommendations', 'Retry comparison'],
       };
       setAiChatTurns((prev) => [...prev, errorTurn]);
     } finally {
@@ -1070,6 +1162,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         setConversationState,
         resetConversationState,
         askAIAssistant,
+        compareProducts,
         isAISearchLoading,
         aiSearchError,
         lastRecommendationResponse,

@@ -23,6 +23,29 @@ export class CartController {
     }
   }
 
+  async getCartCrossSell(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { sessionId, storeId, focusedProductId, query, conversationState, limit, suppressDuplicates } = req.body;
+
+      const result = await bundleService.getCartCrossSell({
+        sessionId: sessionId || (req.headers['x-session-id'] as string) || '',
+        storeId: storeId || (req.headers['x-store-id'] as string) || '',
+        focusedProductId,
+        query,
+        conversationState,
+        limit: limit !== undefined ? Number(limit) : 3,
+        suppressDuplicates: Boolean(suppressDuplicates),
+      });
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getCart(req: Request, res: Response, next: NextFunction) {
     try {
       const sessionId = (req.query.sessionId as string) || (req.headers['x-session-id'] as string) || '';

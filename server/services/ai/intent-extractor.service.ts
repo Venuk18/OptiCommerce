@@ -267,6 +267,18 @@ export class IntentExtractorService {
   ): IntentMode {
     const lower = query.toLowerCase().trim();
 
+    // Phase 6: Intelligent Bundling & Setup Request Detection
+    const bundlePattern = /\b(complete(\s+my|\s+the)?\s+setup|make(\s+me)?\s+a\s+complete\s+setup|bundle(\s+(these|them|it))?(\s+together)?|show(\s+me)?\s+(a\s+)?bundle|any\s+bundle|full\s+setup)\b/i;
+    if (bundlePattern.test(lower)) {
+      return 'BUNDLE_REQUEST';
+    }
+
+    // Phase 6: Cart-Aware Cross-Sell & Accessories Request Detection
+    const crossSellPattern = /\b(what\s+else(\s+should\s+i\s+buy|\s+do\s+i\s+need|\s+to\s+buy|\s+can\s+i\s+get|\s+is\s+recommended)?|accessories(\s+for\s+(this|my|the)(\s+\w+)?)?|pair\s+with|complementary|what\s+goes\s+well\s+with)\b/i;
+    if (crossSellPattern.test(lower)) {
+      return 'CROSS_SELL_REQUEST';
+    }
+
     // Invalid position requested (e.g. "fourth one" when 3 products exist)
     if (refResult?.mode === 'invalid') {
       return 'PRODUCT_REFERENCE';

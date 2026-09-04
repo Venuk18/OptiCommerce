@@ -1,6 +1,6 @@
 import { apiFetch } from './api.client';
 import { getAnonymousSessionId } from './event.service';
-import { ServerCartData, BundleSuggestionsResponseData } from '../types';
+import { ServerCartData, BundleSuggestionsResponseData, CartCrossSellResult } from '../types';
 
 export const cartService = {
   /**
@@ -73,6 +73,35 @@ export const cartService = {
         storeId,
         productId,
         limit,
+      }),
+    });
+    return response;
+  },
+
+  /**
+   * POST /api/cart/cross-sell - Get cart-aware cross-sell and intelligent bundling suggestions (Phase 6)
+   */
+  async getCartCrossSell(
+    storeId: string,
+    options?: {
+      focusedProductId?: string;
+      query?: string;
+      conversationState?: any;
+      limit?: number;
+      suppressDuplicates?: boolean;
+    }
+  ): Promise<CartCrossSellResult> {
+    const sessionId = getAnonymousSessionId();
+    const response = await apiFetch<CartCrossSellResult>('/api/cart/cross-sell', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId,
+        storeId,
+        focusedProductId: options?.focusedProductId,
+        query: options?.query,
+        conversationState: options?.conversationState,
+        limit: options?.limit ?? 3,
+        suppressDuplicates: options?.suppressDuplicates ?? false,
       }),
     });
     return response;

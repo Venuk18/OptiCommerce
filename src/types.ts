@@ -34,6 +34,30 @@ export interface Product {
   bestFor?: string;
 }
 
+export interface ComparedProductItem {
+  productId: string;
+  name: string;
+  brand?: string | null;
+  category: string;
+  price: number;
+  stock?: number;
+  images?: string[];
+  features?: string[];
+  specifications?: Record<string, any> | null;
+  tags?: string[];
+  strengths: string[];
+  weaknesses: string[];
+  tradeoff?: string;
+  fitSummary?: string;
+}
+
+export interface ProductComparisonResult {
+  products: ComparedProductItem[];
+  winnerProductId: string | null;
+  winnerReason: string;
+  tradeoffs: string;
+}
+
 export interface AIChatTurn {
   id: string;
   userPrompt: string;
@@ -42,6 +66,9 @@ export interface AIChatTurn {
   totalFound?: number;
   recommendedProducts: Product[];
   suggestedFollowUps: string[];
+  comparisonData?: ProductComparisonResult;
+  crossSell?: CartCrossSellResult;
+  bundleOpportunity?: BundleOpportunity | null;
 }
 
 export interface AIConstraints {
@@ -258,7 +285,11 @@ export type IntentMode =
   | 'FOLLOW_UP_REFINEMENT'
   | 'PRODUCT_QUESTION'
   | 'PRODUCT_REFERENCE'
-  | 'COMPARISON_REQUEST';
+  | 'COMPARISON_REQUEST'
+  | 'DISSATISFACTION'
+  | 'CLARIFICATION_ANSWER'
+  | 'CROSS_SELL_REQUEST'
+  | 'BUNDLE_REQUEST';
 
 export interface ReferenceResolutionResult {
   resolved: boolean;
@@ -287,6 +318,11 @@ export interface RankedRecommendation {
   rank: number;
   matchScore: number;
   reason: string;
+  whyRecommended?: string;
+  keyAdvantage?: string;
+  tradeoff?: string | null;
+  fitRole?: string;
+  bestFor?: string;
 }
 
 export interface RecommendationResponse {
@@ -311,6 +347,8 @@ export interface RecommendationResponse {
   conversationState?: ConversationState;
   mode?: IntentMode;
   resolvedProducts?: DiscussedProduct[];
+  crossSell?: CartCrossSellResult;
+  bundleOpportunity?: BundleOpportunity | null;
 }
 
 export interface RecommendRequestInput {
@@ -320,6 +358,19 @@ export interface RecommendRequestInput {
   cartProductIds?: string[];
   focusedProductId?: string;
   sessionId?: string;
+}
+
+export interface CompareRequestInput {
+  storeId: string;
+  productIds: string[];
+  conversationState?: ConversationState;
+  query?: string;
+}
+
+export interface CompareResponse {
+  comparison: ProductComparisonResult;
+  conversationState: ConversationState;
+  message: string;
 }
 
 export interface CreateMerchantInput {
@@ -517,6 +568,37 @@ export interface BundleSuggestion {
 export interface BundleSuggestionsResponseData {
   baseProductId: string;
   suggestions: BundleSuggestion[];
+}
+
+export interface BundleProductSummary {
+  id: string;
+  name: string;
+  category: string;
+  brand?: string | null;
+  price: number;
+  stock: number;
+  image?: string;
+}
+
+export interface BundleOpportunity {
+  bundleId: string;
+  bundleName: string;
+  products: BundleProductSummary[];
+  discountEligible: boolean;
+  bundleSummary: string;
+  originalTotal: number;
+  bundlePrice: number;
+  savings: number;
+  discountPercent?: number;
+}
+
+export interface CartCrossSellResult {
+  hasCartItems: boolean;
+  cartStateHash?: string;
+  baseProducts: Array<{ id: string; name: string; category: string }>;
+  suggestions: BundleSuggestion[];
+  bundleOpportunity?: BundleOpportunity | null;
+  explanation?: string;
 }
 
 export type OrderStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED';

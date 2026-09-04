@@ -11,6 +11,9 @@ import { candidateRetrievalService } from './candidate-retrieval.service';
 import { productRankingService } from './product-ranking.service';
 import { dissatisfactionDetectorService } from './dissatisfaction-detector.service';
 import { salesReasonerService } from './sales-reasoner.service';
+import { comparisonService } from './comparison.service';
+import { ProductComparisonResult } from '../../types/comparison.types';
+import { bundleService } from '../bundle.service';
 
 const MAX_PRIMARY_RECOMMENDATIONS = 3;
 
@@ -134,7 +137,57 @@ export class RecommendationService {
       const state = buildConversationState(prevDiscussed, true, targetId, 'EVALUATING');
 
       let detailMessage = `Option ${targetProd.position} is the **${targetProd.name}** priced at ₹${targetProd.price.toLocaleString('en-IN')}.`;
-      if (targetCandidate?.description) {
+
+      const isYesNoQuestion = /\b(does\s+(it|the\s+\w+)|is\s+(it|the\s+\w+)|has\s+it|support|have\b)/i.test(cleanQuery);
+      if (mode === 'PRODUCT_QUESTION' && isYesNoQuestion && targetCandidate) {
+        const prodDataText = [
+          targetCandidate.name,
+          targetCandidate.description || '',
+          ...(targetCandidate.features || []),
+          ...(targetCandidate.tags || []),
+          JSON.stringify(targetCandidate.specifications || {}),
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        const queryLower = cleanQuery.toLowerCase();
+        let queryFeature = '';
+        let featureLabel = '';
+
+        if (/\b(anc|active noise cancel|noise cancellation)\b/i.test(queryLower)) {
+          queryFeature = 'anc';
+          featureLabel = 'Active Noise Cancellation (ANC)';
+        } else if (/\b(waterproof|water resistant|ipx\d?)\b/i.test(queryLower)) {
+          queryFeature = 'water';
+          featureLabel = 'water resistance';
+        } else if (/\b(wireless|bluetooth)\b/i.test(queryLower)) {
+          queryFeature = 'wireless';
+          featureLabel = 'wireless Bluetooth connectivity';
+        } else if (/\b(backlit|rgb)\b/i.test(queryLower)) {
+          queryFeature = 'backlit';
+          featureLabel = 'backlit keys';
+        } else if (/\b(mic|microphone)\b/i.test(queryLower)) {
+          queryFeature = 'mic';
+          featureLabel = 'a built-in microphone';
+        }
+
+        if (queryFeature) {
+          const hasFeature =
+            queryFeature === 'anc'
+              ? /\b(anc|active noise cancel|noise cancel)\b/i.test(prodDataText)
+              : prodDataText.includes(queryFeature);
+
+          if (hasFeature) {
+            detailMessage = `Yes, Option ${targetProd.position} (**${targetProd.name}**) includes ${featureLabel}.`;
+          } else {
+            detailMessage = `I can't confirm that from the product information available for Option ${targetProd.position} (**${targetProd.name}**).`;
+          }
+        } else if (targetCandidate.description) {
+          detailMessage += ` ${targetCandidate.description}`;
+        } else if (targetCandidate.features && targetCandidate.features.length > 0) {
+          detailMessage += ` Key highlights: ${targetCandidate.features.slice(0, 3).join(', ')}.`;
+        }
+      } else if (targetCandidate?.description) {
         detailMessage += ` ${targetCandidate.description}`;
       } else if (targetCandidate?.features && targetCandidate.features.length > 0) {
         detailMessage += ` Key highlights: ${targetCandidate.features.slice(0, 3).join(', ')}.`;
@@ -208,6 +261,27 @@ export class RecommendationService {
         compMessage = `Comparing the ${prevDiscussed.length} recommended options based on your preferences.`;
       }
 
+      let comparisonData: ProductComparisonResult | undefined;
+      if (prevDiscussed.length >= 2 && prevDiscussed.length <= 3) {
+        try {
+          const compResult = await comparisonService.compareProducts({
+            storeId: cleanStoreId,
+            productIds: prevDiscussed.map((p) => p.id),
+            conversationState: prevState,
+            query: cleanQuery,
+          });
+          comparisonData = compResult.comparison;
+          if (!selectedId && compResult.comparison.winnerProductId) {
+            selectedId = compResult.comparison.winnerProductId;
+          }
+          if (compMessage === '' || compMessage.startsWith('Comparing the')) {
+            compMessage = compResult.message;
+          }
+        } catch {
+          // Keep existing comparison message if comparison fails
+        }
+      }
+
       const state = buildConversationState(prevDiscussed, true, selectedId, 'COMPARING');
 
       return {
@@ -224,7 +298,87 @@ export class RecommendationService {
         conversationState: state,
         mode,
         resolvedProducts: resolvedProds,
+        comparison: comparisonData,
       };
+    }
+
+    // 5.4 Handle Case: Phase 6 Cart-Aware Cross-Sell & Intelligent Bundling Requests
+    if (mode === 'CROSS_SELL_REQUEST' || mode === 'BUNDLE_REQUEST') {
+      const sessionId = options?.sessionId || (prevState as any)?.sessionId || '';
+      if (sessionId) {
+        const crossSellResult = await bundleService.getCartCrossSell({
+          sessionId,
+          storeId,
+          focusedProductId: options?.focusedProductId,
+          query: cleanQuery,
+          conversationState: prevState,
+        });
+
+        if (crossSellResult.suggestions.length > 0) {
+          // Map complementary suggestions to discussedProducts so that follow-up turns
+          // (e.g. "tell me about the cheaper one", "show me the second one") resolve naturally!
+          const discussed: DiscussedProduct[] = crossSellResult.suggestions.map((s, idx) => ({
+            id: s.productId,
+            name: s.name,
+            price: s.price,
+            category: s.category,
+            position: idx + 1,
+          }));
+
+          const candidateProducts = crossSellResult.suggestions.map((s) => ({
+            id: s.productId,
+            name: s.name,
+            description: s.reason,
+            category: s.category,
+            brand: s.brand,
+            price: s.price,
+            stock: s.stock,
+            images: s.image ? [s.image] : [],
+            features: [],
+            specifications: null,
+            tags: [],
+            relevanceScore: s.bundleScore,
+          }));
+
+          const state = buildConversationState(discussed, true, discussed[0].id, 'EVALUATING');
+
+          let message = crossSellResult.explanation || 'Here are the recommended complementary items for your setup:';
+          if (mode === 'BUNDLE_REQUEST' && crossSellResult.bundleOpportunity) {
+            message = `${crossSellResult.explanation}\n\n${crossSellResult.bundleOpportunity.bundleSummary}`;
+          }
+
+          return {
+            query: cleanQuery,
+            intent,
+            recommendations: crossSellResult.suggestions.map((s, idx) => ({
+              productId: s.productId,
+              rank: idx + 1,
+              matchScore: s.bundleScore,
+              reason: s.reason,
+            })),
+            products: candidateProducts,
+            message,
+            conversationState: state,
+            mode,
+            resolvedProducts: discussed,
+            crossSell: crossSellResult,
+            bundleOpportunity: crossSellResult.bundleOpportunity,
+          };
+        } else if (!crossSellResult.hasCartItems) {
+          const state = buildConversationState(prevDiscussed, prevDiscussed.length > 0);
+          return {
+            query: cleanQuery,
+            intent,
+            recommendations: [],
+            products: [],
+            message: 'Your cart is currently empty. Once you add an item, I can recommend matching accessories and complete setups for you!',
+            conversationState: state,
+            mode,
+            crossSell: crossSellResult,
+            bundleOpportunity: null,
+          };
+        }
+      }
     }
 
     // 5.5 Handle Case: Customer Dissatisfaction (Phase 3)
@@ -347,6 +501,7 @@ export class RecommendationService {
           keyAdvantage: reasoning?.keyAdvantage,
           tradeoff: reasoning?.tradeoff || null,
           fitRole: reasoning?.fitRole,
+          bestFor: reasoning?.bestFor || reasoning?.fitRole,
           reason: reasoning?.whyRecommended || r.reason,
         };
       });
@@ -444,6 +599,7 @@ export class RecommendationService {
           keyAdvantage: reasoning?.keyAdvantage,
           tradeoff: reasoning?.tradeoff || null,
           fitRole: reasoning?.fitRole,
+          bestFor: reasoning?.bestFor || reasoning?.fitRole,
           reason: reasoning?.whyRecommended || r.reason,
         };
       });
@@ -522,6 +678,7 @@ export class RecommendationService {
         keyAdvantage: reasoning?.keyAdvantage,
         tradeoff: reasoning?.tradeoff || null,
         fitRole: reasoning?.fitRole,
+        bestFor: reasoning?.bestFor || reasoning?.fitRole,
         reason: reasoning?.whyRecommended || r.reason,
       };
     });
