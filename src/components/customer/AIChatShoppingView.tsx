@@ -40,7 +40,9 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
 
   const [inputPrompt, setInputPrompt] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const latestResponseRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef<HTMLDivElement>(null);
+  const prevTurnCountRef = useRef(aiChatTurns.length);
 
   const handleSelectRecommendedProduct = (product: Product, rank: number) => {
     const storeIdToTrack = store?.id || product.storeId;
@@ -59,9 +61,14 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
     onSelectProduct(product);
   };
 
-  // Auto-scroll on new chat turns or loading state change
+  // Auto-scroll directly to newly generated AI response bubble (not page bottom/footer)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isAISearchLoading) {
+      loadingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (aiChatTurns.length > 0 && aiChatTurns.length > prevTurnCountRef.current) {
+      latestResponseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    prevTurnCountRef.current = aiChatTurns.length;
   }, [aiChatTurns, isAISearchLoading]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -102,6 +109,19 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
       {/* Main Conversation Container */}
       <div className="max-w-4xl w-full mx-auto px-4 sm:px-6 pt-8 space-y-10">
         
+        {/* Welcome Empty State if no turns yet */}
+        {aiChatTurns.length === 0 && !isAISearchLoading && (
+          <div className="text-center py-16 px-4 space-y-4 max-w-lg mx-auto">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto shadow-xs">
+              <Sparkles className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900">How can I help you shop today?</h2>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Ask for anything in natural language—like "wireless headphones under ₹5,000 with strong bass", "laptops for programming", or "silent wireless mouse".
+            </p>
+          </div>
+        )}
+
         {/* Render each turn in the AI conversation */}
         {aiChatTurns.map((turn, turnIdx) => (
           <div key={turn.id || turnIdx} className="space-y-6 animate-fadeIn">
@@ -113,8 +133,13 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
               </div>
             </div>
 
-            {/* AI Assistant Response Group */}
-            <div className="flex items-start gap-4">
+            {/* AI Assistant Response Group - Scroll target for latest turn */}
+            <div 
+              id={`ai-turn-response-${turn.id || turnIdx}`}
+              ref={turnIdx === aiChatTurns.length - 1 ? latestResponseRef : undefined}
+              tabIndex={-1}
+              className="flex items-start gap-4 scroll-mt-24 focus:outline-none"
+            >
               {/* Purple circular AI spark icon */}
               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
                 <Sparkles className="w-4 h-4 fill-white text-white" />
@@ -263,7 +288,7 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
 
         {/* Active AI Searching / Loading State Bubble */}
         {isAISearchLoading && (
-          <div className="flex items-start gap-4 animate-pulse">
+          <div ref={loadingRef} className="flex items-start gap-4 animate-pulse scroll-mt-24">
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
               <Loader2 className="w-4 h-4 animate-spin text-white" />
             </div>
@@ -299,8 +324,6 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
             </button>
           </div>
         )}
-
-        <div ref={bottomRef} />
       </div>
 
       {/* Floating Prompt Bar at the Bottom */}
@@ -314,7 +337,7 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
               value={inputPrompt}
               onChange={(e) => setInputPrompt(e.target.value)}
               disabled={isAISearchLoading}
-              placeholder="I like the ZenPods, but are there any in white?"
+              placeholder="Ask for anything, e.g. wireless headphones under ₹5,000 with strong bass"
               className="w-full pl-6 pr-14 py-3.5 bg-white border border-slate-200/90 rounded-full text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-md transition-all disabled:opacity-60"
             />
             <button
@@ -334,9 +357,9 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
           {/* Follow-up Quick Suggestion Chips */}
           <div className="flex flex-wrap items-center gap-2.5 px-2">
             {(latestTurn?.suggestedFollowUps || [
-              'Show me something with better battery life',
-              'Are there any Sony options?',
-              'I like the ZenPods, but are there any in white?'
+              'Wireless headphones under ₹5,000 with strong bass',
+              'Show me ultraportable laptops for work',
+              'Silent wireless mouse under ₹2,000'
             ]).map((chip, idx) => (
               <button
                 key={idx}

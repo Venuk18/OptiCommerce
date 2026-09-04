@@ -2,90 +2,90 @@ import { Product, AIConstraints, SimulationContext, SimulationOutcome, AIChatTur
 
 export const INITIAL_PRODUCTS: Product[] = [
   {
-    id: 'zenpods-pro',
-    name: 'ZenPods Pro',
+    id: 'prod-001',
+    name: 'SoundCore Space One Hybrid ANC Wireless Headphones',
     category: 'Audio',
-    basePrice: 4999,
-    costPrice: 3100,
-    marginPercent: 38.0,
-    stock: 48,
+    basePrice: 4499,
+    costPrice: 2600,
+    marginPercent: 42.2,
+    stock: 32,
     rating: 4.8,
     ratingCount: 1200,
     image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80',
-    description: 'Flagship wireless over-ear noise-canceling headphones with 40h battery life and studio acoustic drivers.',
+    description: 'Over-ear active noise cancelling wireless headphones with 2x stronger voice reduction, 40h ANC playtime, and LDAC Hi-Res audio.',
     matchScore: 98,
     matchBadge: '98% Match',
     matchBadgeColor: 'blue',
-    matchHighlightQuote: 'Best-in-class bass, 40hr battery, fits your exact budget.',
+    matchHighlightQuote: 'Best-in-class noise cancelling, 40hr battery, fits your exact budget.',
     matchHighlightType: 'check',
-    matchReason: 'Best-in-class deep bass tuning, 40h battery life, and exactly fits your budget.',
-    tags: ['Headphones', 'ANC', 'Wireless', 'Bass', 'Audio', 'Black'],
+    matchReason: 'Hybrid active noise cancellation with 40h battery life and Hi-Res certified LDAC sound within budget.',
+    tags: ['Headphones', 'ANC', 'Wireless', 'Audio', 'Bluetooth'],
     aiDiscountEligible: true,
     activeDiscountPercent: 5,
     isLive: true,
     specs: {
       'Battery Life': '40 Hours ANC On',
       'Driver Size': '40mm Titanium Drivers',
-      'Bass Profile': 'BassBoost Dual Reflex Engine',
+      'Audio Codec': 'LDAC Hi-Res Wireless',
       'Connectivity': 'Bluetooth 5.3 + Multi-point',
     }
   },
   {
-    id: 'bassmaster-elite',
-    name: 'BassMaster Elite',
+    id: 'prod-002',
+    name: 'JBL Tune 760NC Wireless Over-Ear NC Headphones',
     category: 'Audio',
-    basePrice: 4200,
-    costPrice: 2400,
-    marginPercent: 42.8,
-    stock: 35,
-    rating: 4.5,
+    basePrice: 4999,
+    costPrice: 2900,
+    marginPercent: 42.0,
+    stock: 28,
+    rating: 4.6,
     ratingCount: 850,
     image: 'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=800&auto=format&fit=crop&q=80',
-    description: 'Engineered for extreme sub-bass response and DJ monitor clarity with reinforced metal earcups.',
+    description: 'Lightweight foldable over-ear headphones with active noise cancelling, JBL Pure Bass sound, and 35h battery with quick charge.',
     matchScore: 92,
     matchBadge: '92% Match',
     matchBadgeColor: 'purple',
-    matchHighlightQuote: 'Extreme bass focus, but shorter battery life (15hrs).',
-    matchHighlightType: 'info',
-    matchReason: 'Extreme sub-bass focus tuned specifically for bass-heavy electronic and hip-hop genres.',
-    tags: ['Headphones', 'Bass', 'DJ', 'Studio', 'Audio'],
+    matchHighlightQuote: 'Signature JBL Pure Bass sound with 35 hours active noise cancelling.',
+    matchHighlightType: 'check',
+    matchReason: 'Engineered with signature JBL Pure Bass sound and active noise cancellation under ₹5,000.',
+    tags: ['Headphones', 'Pure Bass', 'JBL', 'ANC', 'Audio'],
     aiDiscountEligible: true,
     activeDiscountPercent: 0,
     isLive: true,
     specs: {
-      'Battery Life': '15 Hours Playback',
-      'Driver Size': '50mm Neodymium Sub-Bass',
-      'Impedance': '32 Ohm Studio Grade',
-      'Connectivity': 'Bluetooth 5.2 + 3.5mm Gold Plug',
+      'Battery Life': '35 Hours NC On',
+      'Driver Size': '40mm Pure Bass Drivers',
+      'Charging Time': '2 Hours (5min charge = 2h play)',
+      'Connectivity': 'Bluetooth 5.0 + 3.5mm Aux',
     }
   },
   {
-    id: 'zenpods-white',
-    name: 'ZenPods Pro (Pure White)',
+    id: 'prod-003',
+    name: 'Audio-Technica ATH-M20xBT Wireless Studio Headphones',
     category: 'Audio',
-    basePrice: 4999,
-    costPrice: 3100,
-    marginPercent: 38.0,
+    basePrice: 4899,
+    costPrice: 2800,
+    marginPercent: 42.8,
     stock: 22,
-    rating: 4.9,
+    rating: 4.7,
     ratingCount: 430,
-    image: 'https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=800&auto=format&fit=crop&q=80',
-    description: 'Matte pearl white finish with identical punchy deep bass and 40h wireless playback.',
-    matchScore: 97,
-    matchBadge: '97% Match',
+    image: 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=800&auto=format&fit=crop&q=80',
+    description: 'Critically acclaimed M-Series studio sound tuned for enhanced low-frequency performance with 60-hour wireless battery life.',
+    matchScore: 95,
+    matchBadge: '95% Match',
     matchBadgeColor: 'blue',
-    matchHighlightQuote: 'Same top-tier bass & 40h battery, in matte pearl white finish.',
+    matchHighlightQuote: 'Critically acclaimed studio sound with massive 60h battery life.',
     matchHighlightType: 'check',
-    matchReason: 'Exact same acoustic profile as ZenPods Pro in pure white finish.',
-    tags: ['Headphones', 'White', 'ANC', 'Bass', 'Wireless', 'Audio'],
+    matchReason: 'Studio monitor acoustics tuned for balanced audio and exceptional 60-hour battery life.',
+    tags: ['Headphones', 'Studio', 'Wireless', 'Audio', 'Monitor'],
     aiDiscountEligible: true,
-    activeDiscountPercent: 5,
+    activeDiscountPercent: 0,
     isLive: true,
     specs: {
-      'Color': 'Matte Pearl White',
-      'Battery Life': '40 Hours Playback',
-      'Driver Size': '40mm Titanium Drivers',
-      'Weight': '245g',
+      'Battery Life': '60 Hours Wireless Playback',
+      'Driver Size': '40mm Neodymium Drivers',
+      'Latency': 'Low-Latency Gaming Mode',
+      'Connectivity': 'Bluetooth 5.0 + Multipoint',
     }
   },
   {
@@ -340,24 +340,7 @@ export const INITIAL_PRODUCTS: Product[] = [
   }
 ];
 
-export const DEFAULT_AI_CHAT_TURNS: AIChatTurn[] = [
-  {
-    id: 'turn-1',
-    userPrompt: 'Can you find me some wireless headphones under ₹5,000 with really strong bass?',
-    assistantSummary: "I found 4 products that match your requirements: 'Wireless headphones under ₹5,000 with strong bass'.",
-    highlightNote: 'These two are the strongest matches based on your budget and 4.8/5 average user rating for bass performance.',
-    totalFound: 4,
-    recommendedProducts: [
-      INITIAL_PRODUCTS[0], // ZenPods Pro
-      INITIAL_PRODUCTS[1], // BassMaster Elite
-    ],
-    suggestedFollowUps: [
-      'I like the ZenPods, but are there any in white?',
-      'Show me something with better battery life',
-      'Are there any Sony options?'
-    ]
-  }
-];
+export const DEFAULT_AI_CHAT_TURNS: AIChatTurn[] = [];
 
 export const INITIAL_AI_CONSTRAINTS: AIConstraints = {
   maxDiscountLimit: 15,
@@ -373,7 +356,7 @@ export const INITIAL_SIMULATION_CONTEXT: SimulationContext = {
   targetProfileName: 'Returning Customer',
   targetProfileType: 'High lifetime value, price sensitive on electronics.',
   targetProfileNotes: 'Customer browsed 3 headphone PDPs in the last 48 hours without purchasing.',
-  activeCartItemId: 'prod-4', // ZenPods Pro (₹4,999)
+  activeCartItemId: 'prod-001', // SoundCore Space One (₹4,499)
   calculatedPurchaseIntent: 54,
   intentSummary: '"Customer is on the fence. Slight nudge required to close."',
 };
