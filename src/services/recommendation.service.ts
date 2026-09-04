@@ -19,6 +19,10 @@ export const recommendationService = {
       body: JSON.stringify({
         storeId: input.storeId.trim(),
         query: input.query.trim(),
+        conversationContext: input.conversationContext,
+        cartProductIds: input.cartProductIds,
+        focusedProductId: input.focusedProductId,
+        sessionId: input.sessionId,
       }),
     });
   },

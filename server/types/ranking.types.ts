@@ -6,6 +6,10 @@ export interface RankedProduct {
   rank: number;
   matchScore: number;
   reason: string;
+  whyRecommended?: string;
+  keyAdvantage?: string;
+  tradeoff?: string | null;
+  fitRole?: string;
 }
 
 export interface RankProductsInput {

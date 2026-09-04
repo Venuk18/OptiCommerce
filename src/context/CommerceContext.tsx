@@ -14,14 +14,17 @@ import {
   DbProduct,
   RecommendationResponse,
   ServerCartData,
-  ServerOrderData
+  ServerOrderData,
+  ConversationState,
+  ConversationMessageHistory,
+  createInitialConversationState
 } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_AI_CONSTRAINTS, INITIAL_SIMULATION_CONTEXT, SIMULATION_SCENARIOS, DEFAULT_AI_CHAT_TURNS } from '../data/mockData';
 import { storeService } from '../services/store.service';
 import { merchantService } from '../services/merchant.service';
 import { productService } from '../services/product.service';
 import { recommendationService } from '../services/recommendation.service';
-import { eventService } from '../services/event.service';
+import { eventService, getAnonymousSessionId } from '../services/event.service';
 import { cartService } from '../services/cart.service';
 import { orderService } from '../services/order.service';
 import { paymentService } from '../services/payment.service';
@@ -99,6 +102,9 @@ interface CommerceContextType {
   selectedCategory: string;
   setSelectedCategory: (cat: string) => void;
   aiChatTurns: AIChatTurn[];
+  conversationState: ConversationState;
+  setConversationState: React.Dispatch<React.SetStateAction<ConversationState>>;
+  resetConversationState: () => void;
   askAIAssistant: (prompt: string) => Promise<void>;
   isAISearchLoading: boolean;
   aiSearchError: string | null;
@@ -350,9 +356,14 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchFilterAdjustment, setSearchFilterAdjustment] = useState<string | null>(null);
   const [aiChatTurns, setAiChatTurns] = useState<AIChatTurn[]>(DEFAULT_AI_CHAT_TURNS);
+  const [conversationState, setConversationState] = useState<ConversationState>(createInitialConversationState());
   const [isAISearchLoading, setIsAISearchLoading] = useState(false);
   const [aiSearchError, setAiSearchError] = useState<string | null>(null);
   const [lastRecommendationResponse, setLastRecommendationResponse] = useState<any | null>(null);
+
+  const resetConversationState = useCallback(() => {
+    setConversationState(createInitialConversationState());
+  }, []);
 
   const askAIAssistant = async (prompt: string) => {
     if (!prompt || !prompt.trim()) return;
@@ -385,10 +396,35 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         },
       });
 
+      // Prepare lightweight recent conversation history without heavy product payloads
+      const recentHistory: ConversationMessageHistory[] = aiChatTurns
+        .slice(-5)
+        .flatMap((turn) => [
+          { role: 'user' as const, content: turn.userPrompt },
+          { role: 'assistant' as const, content: turn.assistantSummary || '' },
+        ])
+        .filter((msg) => Boolean(msg.content));
+
+      // Extract current active cart product IDs (both optimistic local cart and server cart)
+      const cartProductIds = Array.from(
+        new Set([
+          ...cart.map((item) => item.product?.id),
+          ...(serverCart?.items || []).map((item) => item.productId),
+        ])
+      ).filter(Boolean) as string[];
+
+      const sessionId = getAnonymousSessionId();
+
       // 2. Call Phase 4D Orchestration endpoint POST /api/ai/recommend
       const response = await recommendationService.recommend({
         storeId: storeIdToUse,
         query: cleanPrompt,
+        conversationContext: {
+          history: recentHistory,
+          state: conversationState,
+        },
+        cartProductIds,
+        sessionId,
       });
 
       setLastRecommendationResponse(response);
@@ -448,14 +484,36 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      // Update conversation state with response state or local discussed products
+      if (response.conversationState) {
+        setConversationState(response.conversationState);
+      } else {
+        setConversationState((prev) => ({
+          ...prev,
+          discussedProducts: recommendedList.map((prod, idx) => ({
+            id: prod.id,
+            name: prod.name,
+            price: prod.basePrice || 0,
+            category: prod.category || '',
+            position: idx + 1,
+          })),
+          stage: recommendedList.length > 0 ? 'EVALUATING' : prev.stage,
+        }));
+      }
+
       let summary = '';
       let note = '';
 
-      if (recommendedList.length > 0) {
+      if (response.message) {
+        summary = response.message;
+        if (recommendedList.length > 0) {
+          note = `Focus: ${recommendedList[0].name} (${formatINR(recommendedList[0].basePrice)})`;
+        }
+      } else if (recommendedList.length > 0) {
         summary = `I found ${recommendedList.length} product${recommendedList.length > 1 ? 's' : ''} that match your request for '${cleanPrompt}':`;
         note = `Top match: ${recommendedList[0].name} (${formatINR(recommendedList[0].basePrice)}) — ${recommendedList[0].matchReason || 'High match for your preferences'}`;
       } else {
-        summary = response.message || `No published products matched your search for '${cleanPrompt}'.`;
+        summary = `No published products matched your search for '${cleanPrompt}'.`;
         note = 'Try searching with different keywords, category, or price range.';
       }
 
@@ -1003,6 +1061,9 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         setSearchFilterAdjustment,
         filteredRecommendations,
         aiChatTurns,
+        conversationState,
+        setConversationState,
+        resetConversationState,
         askAIAssistant,
         isAISearchLoading,
         aiSearchError,

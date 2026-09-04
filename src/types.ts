@@ -186,6 +186,84 @@ export interface ApiResponse<T> {
   };
 }
 
+export interface DiscussedProduct {
+  id: string;
+  name: string;
+  price: number;
+  category: string;
+  position: number;
+}
+
+export type ConversationStage =
+  | 'DISCOVERY'
+  | 'CLARIFYING'
+  | 'EVALUATING'
+  | 'COMPARING'
+  | 'READY_TO_BUY';
+
+export interface ConversationState {
+  goal: string | null;
+  category: string | null;
+  budget: {
+    min: number | null;
+    max: number | null;
+  };
+  preferences: string[];
+  exclusions: string[];
+  useCase: string | null;
+  discussedProducts: DiscussedProduct[];
+  rejectedProducts: string[];
+  selectedProductId: string | null;
+  stage: ConversationStage;
+  pendingClarification?: {
+    question: string;
+    options: string[];
+  } | null;
+}
+
+export const createInitialConversationState = (): ConversationState => ({
+  goal: null,
+  category: null,
+  budget: {
+    min: null,
+    max: null,
+  },
+  preferences: [],
+  exclusions: [],
+  useCase: null,
+  discussedProducts: [],
+  rejectedProducts: [],
+  selectedProductId: null,
+  stage: 'DISCOVERY',
+  pendingClarification: null,
+});
+
+export interface ConversationMessageHistory {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ConversationContextInput {
+  history?: ConversationMessageHistory[];
+  state?: ConversationState;
+}
+
+export type IntentMode =
+  | 'NEW_REQUEST'
+  | 'FOLLOW_UP_REFINEMENT'
+  | 'PRODUCT_QUESTION'
+  | 'PRODUCT_REFERENCE'
+  | 'COMPARISON_REQUEST';
+
+export interface ReferenceResolutionResult {
+  resolved: boolean;
+  mode: 'single' | 'multiple' | 'invalid' | 'none';
+  referencedPositions: number[];
+  referencedProductIds: string[];
+  unresolvedMessage?: string;
+  comparisonAttribute?: string;
+}
+
 export interface CustomerIntent {
   category: string | null;
   brand: string | null;
@@ -193,6 +271,10 @@ export interface CustomerIntent {
   maxPrice: number | null;
   preferences: string[];
   keywords: string[];
+  mode?: IntentMode;
+  useCase?: string | null;
+  targetProductPositions?: number[];
+  comparisonAttributes?: string[];
 }
 
 export interface RankedRecommendation {
@@ -221,11 +303,18 @@ export interface RecommendationResponse {
     relevanceScore: number;
   }[];
   message?: string;
+  conversationState?: ConversationState;
+  mode?: IntentMode;
+  resolvedProducts?: DiscussedProduct[];
 }
 
 export interface RecommendRequestInput {
   storeId: string;
   query: string;
+  conversationContext?: ConversationContextInput;
+  cartProductIds?: string[];
+  focusedProductId?: string;
+  sessionId?: string;
 }
 
 export interface CreateMerchantInput {

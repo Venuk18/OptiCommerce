@@ -242,9 +242,39 @@ export class CandidateRetrievalService {
 
     // 7. Prune weak candidates using RELEVANCE_MIN_THRESHOLD
     // Price alone is not sufficient relevance; items must satisfy real query criteria
-    const validCandidates = scoredCandidates.filter((candidate) => candidate.relevanceScore >= RELEVANCE_MIN_THRESHOLD);
+    let validCandidates = scoredCandidates.filter((candidate) => candidate.relevanceScore >= RELEVANCE_MIN_THRESHOLD);
 
-    // 8. Sort by relevanceScore DESC, then price ASC, then id ASC
+    // 8. Apply brand exclusions if present in customer intent (Phase 3)
+    if (intent.exclusions && intent.exclusions.length > 0) {
+      for (const ex of intent.exclusions) {
+        const cleanEx = ex.trim().toLowerCase();
+        if (cleanEx) {
+          validCandidates = validCandidates.filter((c) => {
+            const brandMatch = (c.brand || '').toLowerCase().includes(cleanEx);
+            const nameMatch = c.name.toLowerCase().includes(cleanEx);
+            return !brandMatch && !nameMatch;
+          });
+        }
+      }
+    }
+
+    // 9. Prioritize non-rejected products over previously rejected products (Phase 3)
+    // Avoids previously rejected products when sufficient alternatives exist,
+    // without making the catalog artificially empty if alternatives are scarce.
+    if (intent.rejectedProductIds && intent.rejectedProductIds.length > 0) {
+      const rejectedSet = new Set(intent.rejectedProductIds);
+      const nonRejected = validCandidates.filter((c) => !rejectedSet.has(c.id));
+      if (nonRejected.length >= 3) {
+        // Sufficient alternatives exist: completely avoid rejected products
+        validCandidates = nonRejected;
+      } else if (nonRejected.length > 0) {
+        // Some alternatives exist: prioritize non-rejected first, followed by remaining valid candidates
+        const remainingRejected = validCandidates.filter((c) => rejectedSet.has(c.id));
+        validCandidates = [...nonRejected, ...remainingRejected];
+      }
+    }
+
+    // 10. Sort by relevanceScore DESC, then price ASC, then id ASC
     validCandidates.sort((a, b) => {
       if (b.relevanceScore !== a.relevanceScore) {
         return b.relevanceScore - a.relevanceScore;
@@ -255,7 +285,7 @@ export class CandidateRetrievalService {
       return a.id.localeCompare(b.id);
     });
 
-    // 9. Enforce maximum result limit
+    // 11. Enforce maximum result limit
     const limitedCandidates = validCandidates.slice(0, MAX_CANDIDATES_LIMIT);
 
     return {

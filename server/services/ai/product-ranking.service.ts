@@ -6,7 +6,7 @@ import { getGeminiClient } from './gemini.client';
 import { RELEVANCE_MIN_THRESHOLD } from './candidate-retrieval.service';
 
 const MAX_CANDIDATES = 10;
-const MAX_RECOMMENDED_LIMIT = 5;
+const MAX_RECOMMENDED_LIMIT = 3;
 const GEMINI_TIMEOUT_MS = 6000;
 
 export class ProductRankingService {
@@ -86,7 +86,7 @@ RANKING CRITERIA:
 STRICT INSTRUCTIONS:
 - Rank ONLY candidate products that genuinely match the customer's request.
 - Discard candidate products that do not match the customer's primary product type, category, or budget.
-- Return at most 5 recommendations, ideally top 3.
+- Return at most 3 recommendations (the strongest 3 options). If only 1 or 2 candidates are genuinely relevant, return only those.
 - If NONE of the candidates are truly relevant, return an empty array: "rankedProducts": [].
 - Assign an honest matchScore from 0 to 100 for each recommended product.
 - Provide a concise, customer-friendly explanation (1-2 sentences) in the "reason" field explaining why this product satisfies their query.
