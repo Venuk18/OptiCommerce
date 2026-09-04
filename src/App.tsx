@@ -29,8 +29,6 @@ import { Product } from './types';
 
 function MainLayout() {
   const { 
-    experience,
-    setExperience,
     merchantTab, 
     setMerchantTab,
     customerTab, 
@@ -68,18 +66,7 @@ function MainLayout() {
   // Top-level experience boundary derived from URL
   const isMerchantRoute = currentPath.startsWith('/merchant');
 
-  // Synchronize in-memory experience state in CommerceContext with URL
-  useEffect(() => {
-    if (isMerchantRoute) {
-      if (experience !== 'merchant') {
-        setExperience('merchant');
-      }
-    } else {
-      if (experience !== 'customer') {
-        setExperience('customer');
-      }
-    }
-  }, [isMerchantRoute, experience, setExperience]);
+
 
   // Derive active merchant tab from URL if present
   useEffect(() => {

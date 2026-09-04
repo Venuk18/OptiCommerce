@@ -56,9 +56,6 @@ export type CustomerTab =
   | 'orders';
 
 interface CommerceContextType {
-  experience: 'merchant' | 'customer';
-  setExperience: (exp: 'merchant' | 'customer') => void;
-  
   merchantTab: MerchantTab;
   setMerchantTab: (tab: MerchantTab) => void;
   
@@ -164,7 +161,6 @@ const CommerceContext = createContext<CommerceContextType | undefined>(undefined
 
 export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const { merchant: authMerchant, isAuthenticated } = useAuth();
-  const [experience, setExperience] = useState<'merchant' | 'customer'>('customer');
   const [merchantTab, setMerchantTab] = useState<MerchantTab>('dashboard');
   const [customerTab, setCustomerTab] = useState<CustomerTab>('home');
   
@@ -193,20 +189,26 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   // Active store resolution:
   // In Merchant Suite with an authenticated merchant, use the merchant's private store.
   // In Customer Storefront, always use the public customer store.
-  const store = (experience === 'merchant' && isAuthenticated && merchantStore)
-    ? merchantStore
-    : customerStore;
+  const isMerchantRoute =
+    typeof window !== 'undefined' &&
+    window.location.pathname.startsWith('/merchant');
 
-  const merchant = (experience === 'merchant' && isAuthenticated && authMerchant)
-    ? {
-        id: authMerchant.id,
-        name: authMerchant.name,
-        email: authMerchant.email,
-        createdAt: authMerchant.createdAt || new Date().toISOString(),
-        updatedAt: authMerchant.updatedAt || new Date().toISOString(),
-        store: merchantStore || undefined,
-      }
-    : customerMerchant;
+  const store =
+    isMerchantRoute && isAuthenticated && merchantStore
+      ? merchantStore
+      : customerStore;
+
+  const merchant =
+    isMerchantRoute && isAuthenticated && authMerchant
+      ? {
+          id: authMerchant.id,
+          name: authMerchant.name,
+          email: authMerchant.email,
+          createdAt: authMerchant.createdAt || new Date().toISOString(),
+          updatedAt: authMerchant.updatedAt || new Date().toISOString(),
+          store: merchantStore || undefined,
+        }
+      : customerMerchant;
 
   const setStore = setCustomerStore;
 
@@ -1144,8 +1146,6 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   return (
     <CommerceContext.Provider
       value={{
-        experience,
-        setExperience,
         merchantTab,
         setMerchantTab,
         customerTab,
