@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useCommerce } from '../../context/CommerceContext';
 import { merchantDashboardService } from '../../services/merchant-dashboard.service';
-import { MerchantDashboardSummaryData } from '../../types';
+import { MerchantDashboardSummaryData, MerchantOrderData, MerchantAttributionSummaryData } from '../../types';
 import { commercialService, CommercialIntelligenceReport } from '../../services/commercial.service';
+import { RevenueCharts } from './RevenueCharts';
 import { FunnelAnalytics } from './FunnelAnalytics';
 import { 
   TrendingUp, 
@@ -24,6 +25,8 @@ export function RevenueAnalytics() {
   const { store, isStoreLoading, setMerchantTab } = useCommerce();
 
   const [summary, setSummary] = useState<MerchantDashboardSummaryData | null>(null);
+  const [attribution, setAttribution] = useState<MerchantAttributionSummaryData | null>(null);
+  const [orders, setOrders] = useState<MerchantOrderData[]>([]);
   const [commercialIntel, setCommercialIntel] = useState<CommercialIntelligenceReport | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,11 +41,15 @@ export function RevenueAnalytics() {
     setError(null);
 
     try {
-      const [summaryData, intelData] = await Promise.all([
+      const [summaryData, attributionData, ordersData, intelData] = await Promise.all([
         merchantDashboardService.getSummary(store.id),
+        merchantDashboardService.getAttribution(store.id).catch(() => null),
+        merchantDashboardService.getStoreOrders(store.id).then((res) => res.orders || []).catch(() => []),
         commercialService.getCommercialIntelligence(store.id).catch(() => null),
       ]);
       setSummary(summaryData);
+      setAttribution(attributionData);
+      setOrders(ordersData);
       setCommercialIntel(intelData);
     } catch (err: any) {
       console.error('Failed to load revenue analytics:', err);
@@ -201,6 +208,13 @@ export function RevenueAnalytics() {
               <p className="text-xs text-slate-400">Complementary bundle sales</p>
             </div>
           </div>
+
+          {/* Revenue & Growth Visualizations (Native SVG Charts) */}
+          <RevenueCharts
+            orders={orders}
+            attribution={attribution}
+            isLoading={isLoading}
+          />
 
           {/* Funnel Analytics */}
           <FunnelAnalytics storeId={store?.id} isStoreLoading={isStoreLoading} />

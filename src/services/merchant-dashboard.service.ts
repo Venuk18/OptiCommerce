@@ -127,6 +127,13 @@ export const merchantDashboardService = {
   },
 
   /**
+   * Fetches customer orders for a store (alias for getOrders with high limit).
+   */
+  async getStoreOrders(storeId: string): Promise<MerchantOrdersData> {
+    return this.getOrders(storeId, { limit: 100 });
+  },
+
+  /**
    * Fetches single order details for a store.
    */
   async getOrderDetails(storeId: string, orderId: string): Promise<MerchantOrderData> {

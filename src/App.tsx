@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { MerchantSidebar } from './components/merchant/MerchantSidebar';
 import { MerchantHeader } from './components/merchant/MerchantHeader';
 import { MerchantAuth } from './components/merchant/MerchantAuth';
+import { MerchantLanding } from './components/merchant/MerchantLanding';
 import { AIControlCenter } from './components/merchant/AIControlCenter';
 import { DiscountOptimizer } from './components/merchant/DiscountOptimizer';
 import { Dashboard } from './components/merchant/Dashboard';
@@ -65,6 +66,7 @@ function MainLayout() {
 
   // Top-level experience boundary derived from URL
   const isMerchantRoute = currentPath.startsWith('/merchant');
+  const isMerchantLanding = currentPath === '/merchant' || currentPath === '/merchant/';
 
 
 
@@ -97,19 +99,18 @@ function MainLayout() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans flex flex-col selection:bg-blue-100 selection:text-blue-900">
       {isMerchantRoute ? (
-        /* MERCHANT SUITE EXPERIENCE (/merchant/*) */
-        isAuthLoading ? (
+        /* MERCHANT EXPERIENCE (/merchant/*) */
+        isMerchantLanding ? (
+          /* Public Merchant Landing Page (/merchant, /merchant/) */
+          <MerchantLanding onNavigate={navigate} />
+        ) : isAuthLoading ? (
           <div className="min-h-[80vh] flex flex-col items-center justify-center">
             <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-xs font-semibold text-slate-500 mt-3">Verifying merchant session...</p>
           </div>
         ) : !isAuthenticated ? (
-          <div className="flex-1 flex flex-col">
-            <MerchantHeader />
-            <div className="flex-1 flex items-center justify-center p-6 bg-[#F8FAFC]">
-              <MerchantAuth initialMode={merchantAuthMode} />
-            </div>
-          </div>
+          /* Standalone Full-Page Merchant Authentication Layout (NO MerchantHeader) */
+          <MerchantAuth initialMode={merchantAuthMode} onNavigate={navigate} />
         ) : (
           <div className="flex h-screen overflow-hidden">
             <MerchantSidebar />
