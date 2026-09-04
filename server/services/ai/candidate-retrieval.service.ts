@@ -258,6 +258,113 @@ export class CandidateRetrievalService {
       }
     }
 
+    let isBudgetRelaxed = false;
+
+    // 8b. Controlled Nearest-Price Fallback for Primary Device Categories
+    // Only triggered if:
+    // 1. Requested category is a primary device category (laptops, phones, cameras, earbuds, etc.)
+    // 2. Customer did NOT request an accessory
+    // 3. A maxPrice constraint exists
+    // 4. Strict in-budget retrieval yielded ZERO valid candidates
+    if (
+      validCandidates.length === 0 &&
+      isPrimaryCategory &&
+      !userWantsAccessory &&
+      typeof intent.maxPrice === 'number' &&
+      intent.maxPrice > 0
+    ) {
+      // Use maximum 20% budget relaxation buffer
+      const relaxedMaxPrice = Math.round(intent.maxPrice * 1.20);
+
+      const relaxedWhere: Prisma.ProductWhereInput = {
+        ...where,
+        price: {
+          ...(intent.minPrice !== null && intent.minPrice !== undefined ? { gte: intent.minPrice } : {}),
+          gt: intent.maxPrice,
+          lte: relaxedMaxPrice,
+        },
+      };
+
+      const relaxedRawProducts = await prisma.product.findMany({
+        where: relaxedWhere,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          category: true,
+          brand: true,
+          price: true,
+          stock: true,
+          images: true,
+          features: true,
+          specifications: true,
+          tags: true,
+          storeId: true,
+          status: true,
+        },
+      });
+
+      // Strict accessory filtering: NEVER return accessories as substitutes for a requested primary device
+      const relaxedFilteredProducts = relaxedRawProducts.filter((product) => {
+        const isAcc = isAccessoryProduct(product);
+        if (isPrimaryCategory && !userWantsAccessory && isAcc) {
+          return false;
+        }
+        return true;
+      });
+
+      if (relaxedFilteredProducts.length > 0) {
+        const relaxedScored: CandidateProduct[] = relaxedFilteredProducts.map((product) => {
+          const score = this.calculateRelevanceScore(product, intent, isGeneric);
+          return {
+            id: product.id,
+            name: product.name,
+            description: product.description,
+            category: product.category,
+            brand: product.brand,
+            price: Number(product.price),
+            stock: product.stock,
+            images: product.images || [],
+            features: product.features || [],
+            specifications: (product.specifications as Record<string, any>) || null,
+            tags: product.tags || [],
+            relevanceScore: score,
+            isBudgetRelaxed: true,
+            originalBudgetMax: intent.maxPrice,
+          };
+        });
+
+        let relaxedValid = relaxedScored.filter((candidate) => candidate.relevanceScore >= RELEVANCE_MIN_THRESHOLD);
+
+        // Apply brand exclusions if present
+        if (intent.exclusions && intent.exclusions.length > 0) {
+          for (const ex of intent.exclusions) {
+            const cleanEx = ex.trim().toLowerCase();
+            if (cleanEx) {
+              relaxedValid = relaxedValid.filter((c) => {
+                const brandMatch = (c.brand || '').toLowerCase().includes(cleanEx);
+                const nameMatch = c.name.toLowerCase().includes(cleanEx);
+                return !brandMatch && !nameMatch;
+              });
+            }
+          }
+        }
+
+        if (relaxedValid.length > 0) {
+          // Rule 7: Prefer the cheapest/closest primary-category products above the budget
+          relaxedValid.sort((a, b) => {
+            if (a.price !== b.price) {
+              return a.price - b.price; // closest price above budget first
+            }
+            return b.relevanceScore - a.relevanceScore;
+          });
+
+          validCandidates = relaxedValid;
+          isBudgetRelaxed = true;
+        }
+      }
+    }
+
     // 9. Prioritize non-rejected products over previously rejected products (Phase 3)
     // Avoids previously rejected products when sufficient alternatives exist,
     // without making the catalog artificially empty if alternatives are scarce.
@@ -274,16 +381,18 @@ export class CandidateRetrievalService {
       }
     }
 
-    // 10. Sort by relevanceScore DESC, then price ASC, then id ASC
-    validCandidates.sort((a, b) => {
-      if (b.relevanceScore !== a.relevanceScore) {
-        return b.relevanceScore - a.relevanceScore;
-      }
-      if (a.price !== b.price) {
-        return a.price - b.price;
-      }
-      return a.id.localeCompare(b.id);
-    });
+    // 10. Sort candidates: if budget-relaxed, prioritize lowest price (nearest to budget); otherwise relevance DESC then price ASC
+    if (!isBudgetRelaxed) {
+      validCandidates.sort((a, b) => {
+        if (b.relevanceScore !== a.relevanceScore) {
+          return b.relevanceScore - a.relevanceScore;
+        }
+        if (a.price !== b.price) {
+          return a.price - b.price;
+        }
+        return a.id.localeCompare(b.id);
+      });
+    }
 
     // 11. Enforce maximum result limit
     const limitedCandidates = validCandidates.slice(0, MAX_CANDIDATES_LIMIT);
@@ -291,6 +400,8 @@ export class CandidateRetrievalService {
     return {
       products: limitedCandidates,
       count: limitedCandidates.length,
+      isBudgetRelaxed,
+      originalBudgetMax: isBudgetRelaxed ? intent.maxPrice : undefined,
     };
   }
 

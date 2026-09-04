@@ -145,13 +145,22 @@ export class SalesReasonerService {
       };
     });
 
+    const hasRelaxed = candidates.some((c) => (c as any).isBudgetRelaxed);
+    const budgetContext = hasRelaxed && intent.maxPrice
+      ? `Requested budget max ₹${intent.maxPrice.toLocaleString('en-IN')}. Note: strictly within-budget options were not available in this category; these are the closest available options above budget. Transparently acknowledge this trade-off.`
+      : intent.maxPrice
+      ? 'Max ₹' + intent.maxPrice.toLocaleString('en-IN')
+      : conversationState?.budget?.max
+      ? 'Max ₹' + conversationState.budget.max.toLocaleString('en-IN')
+      : 'Flexible';
+
     const prompt = `You are OptiCommerce's expert AI commerce sales assistant.
 Your job is to explain WHY these shortlisted products are recommended for the customer's goal and highlight honest trade-offs.
 
 CUSTOMER CONTEXT:
 - Category / Query: ${intent.category || conversationState?.category || 'general search'}
 - Goal / Use Case: ${conversationState?.goal || intent.useCase || conversationState?.useCase || 'not specified'}
-- Budget: ${intent.maxPrice ? 'Max ₹' + intent.maxPrice.toLocaleString('en-IN') : conversationState?.budget?.max ? 'Max ₹' + conversationState.budget.max.toLocaleString('en-IN') : 'Flexible'}
+- Budget: ${budgetContext}
 - Preferences: ${[...(intent.preferences || []), ...(conversationState?.preferences || [])].join(', ') || 'None specified'}
 - Exclusions: ${[...(intent.exclusions || []), ...(conversationState?.exclusions || [])].join(', ') || 'None'}
 
@@ -454,7 +463,14 @@ REQUIREMENTS:
       let fitRole = 'Balanced Alternative';
       let bestFor = `Solid alternative for ${categoryName}`;
 
-      if (isTopRank) {
+      const isBudgetStretched = Boolean(product.isBudgetRelaxed);
+      const budgetTarget = effectiveBudget || product.originalBudgetMax || 0;
+      const budgetDiff = budgetTarget > 0 ? product.price - budgetTarget : 0;
+
+      if (isBudgetStretched && budgetTarget > 0) {
+        fitRole = isTopRank ? 'Closest Available Option' : 'Alternative Option';
+        bestFor = `Closest available ${categoryName.endsWith('s') ? categoryName.slice(0, -1) : categoryName} (₹${budgetDiff.toLocaleString('en-IN')} above budget)`;
+      } else if (isTopRank) {
         fitRole = 'Strongest Overall Fit';
         bestFor = useCase
           ? `Best overall fit for ${useCase}`
@@ -512,7 +528,9 @@ REQUIREMENTS:
 
       // 3. Determine Honest Trade-Off
       let tradeoff: string | null = null;
-      if (!isTopRank && isMostExpensive) {
+      if (isBudgetStretched && budgetTarget > 0) {
+        tradeoff = `Costs ₹${budgetDiff.toLocaleString('en-IN')} above your ₹${budgetTarget.toLocaleString('en-IN')} budget target.`;
+      } else if (!isTopRank && isMostExpensive) {
         const diff = product.price - items[0].product.price;
         if (diff > 0) {
           tradeoff = `Costs ₹${diff.toLocaleString('en-IN')} more than the top-ranked option.`;
@@ -546,7 +564,10 @@ REQUIREMENTS:
       let whyRecommended = '';
       const savings = effectiveBudget ? effectiveBudget - product.price : null;
 
-      if (isTopRank) {
+      if (isBudgetStretched && budgetTarget > 0) {
+        const singleCat = categoryName.endsWith('s') ? categoryName.slice(0, -1) : categoryName;
+        whyRecommended = `We don't have a ${singleCat} within ₹${budgetTarget.toLocaleString('en-IN')}. The closest available option is the ${product.name} at ₹${product.price.toLocaleString('en-IN')}, which is ₹${budgetDiff.toLocaleString('en-IN')} above your budget${useCase ? ` and tailored for ${useCase}` : ''}.`;
+      } else if (isTopRank) {
         if (useCase) {
           whyRecommended = `I'd lean toward this one because it gives you the strongest balance for your ${useCase} needs while staying within your budget at ₹${product.price.toLocaleString('en-IN')}.`;
         } else if (effectiveBudget) {
@@ -599,6 +620,8 @@ REQUIREMENTS:
     // 5. Construct Cohesive Sales Overview with Strongest-Fit synthesis
     let introSentence = '';
     const wasDissatisfied = conversationState?.rejectedProducts && conversationState.rejectedProducts.length > 0;
+    const hasBudgetRelaxed = items.some((i) => Boolean(i.product.isBudgetRelaxed));
+    const budgetTarget = effectiveBudget || items[0].product.originalBudgetMax || 0;
 
     if (wasDissatisfied) {
       if (effectiveBudget) {
@@ -608,6 +631,11 @@ REQUIREMENTS:
       } else {
         introSentence = `Here are refined options directly addressing your updated criteria:`;
       }
+    } else if (hasBudgetRelaxed && budgetTarget > 0) {
+      const topProd = items[0].product;
+      const diff = topProd.price - budgetTarget;
+      const singleCat = categoryName.endsWith('s') ? categoryName.slice(0, -1) : categoryName;
+      introSentence = `We don't have a ${singleCat} strictly within ₹${budgetTarget.toLocaleString('en-IN')}. The closest available option is ₹${topProd.price.toLocaleString('en-IN')}, which is ₹${diff.toLocaleString('en-IN')} above your budget:`;
     } else {
       const topProd = items[0].product;
       const contextLabel = useCase || goal || categoryName;

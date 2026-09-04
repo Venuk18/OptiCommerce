@@ -13,6 +13,8 @@ export interface CandidateProduct {
   specifications: Record<string, any> | null;
   tags: string[];
   relevanceScore: number;
+  isBudgetRelaxed?: boolean;
+  originalBudgetMax?: number | null;
 }
 
 export interface SearchCandidatesInput {
@@ -23,4 +25,6 @@ export interface SearchCandidatesInput {
 export interface SearchCandidatesResult {
   products: CandidateProduct[];
   count: number;
+  isBudgetRelaxed?: boolean;
+  originalBudgetMax?: number | null;
 }

@@ -29,12 +29,14 @@ export class ProductRankingService {
     // 2. Cap candidates at maximum 10
     const boundedCandidates = candidates.slice(0, MAX_CANDIDATES);
 
+    const hasRelaxedCandidates = boundedCandidates.some((c) => c.isBudgetRelaxed);
+
     // 3. Try ranking with AI provider orchestrator (or aiClientOverride if provided)
     if (aiClientOverride !== undefined) {
       if (aiClientOverride) {
         try {
           const aiRankings = await this.rankWithGemini(aiClientOverride, intent, boundedCandidates);
-          if (aiRankings && this.validateAiRankings(aiRankings, boundedCandidates)) {
+          if (aiRankings && (!hasRelaxedCandidates || aiRankings.length > 0) && this.validateAiRankings(aiRankings, boundedCandidates)) {
             return { rankedProducts: aiRankings };
           }
         } catch (error) {
@@ -44,7 +46,7 @@ export class ProductRankingService {
     } else {
       try {
         const aiRankings = await this.rankWithAI(intent, boundedCandidates);
-        if (aiRankings && this.validateAiRankings(aiRankings, boundedCandidates)) {
+        if (aiRankings && (!hasRelaxedCandidates || aiRankings.length > 0) && this.validateAiRankings(aiRankings, boundedCandidates)) {
           return { rankedProducts: aiRankings };
         }
       } catch (error) {
@@ -75,19 +77,29 @@ export class ProductRankingService {
       specifications: c.specifications,
       tags: c.tags,
       relevanceScore: c.relevanceScore,
+      isBudgetRelaxed: c.isBudgetRelaxed,
     }));
+
+    const hasRelaxedCandidates = candidates.some((c) => c.isBudgetRelaxed);
+    const budgetCriteria = hasRelaxedCandidates
+      ? `closest available options to the customer's budget target (target ₹${intent.maxPrice})`
+      : `strictly prioritize candidates within budget: ${intent.maxPrice ? 'under ₹' + intent.maxPrice : 'any'}`;
+    const budgetInstruction = hasRelaxedCandidates
+      ? `- Discard candidate products that do not match the customer's primary product type or category.`
+      : `- Discard candidate products that do not match the customer's primary product type, category, or budget.`;
 
     const prompt = `You are an expert commerce ranking assistant.
 Rank ONLY the provided candidate products according to the customer's intent.
 
 CUSTOMER INTENT:
 ${JSON.stringify(intent, null, 2)}
+${hasRelaxedCandidates ? `\nNOTE ON BUDGET: The customer's desired budget is ₹${intent.maxPrice}. Strict within-budget primary products do not exist in the store, so these candidates are the closest available options above budget. Rank them based on relevance and quality—DO NOT discard them for exceeding ₹${intent.maxPrice}.` : ''}
 
 CANDIDATE PRODUCTS (${sanitizedCandidates.length} items):
 ${JSON.stringify(sanitizedCandidates, null, 2)}
 
 RANKING CRITERIA:
-1. Category and price/budget compatibility (strictly prioritize candidates within budget: ${intent.maxPrice ? 'under ₹' + intent.maxPrice : 'any'}).
+1. Category and price/budget compatibility (${budgetCriteria}).
 2. Explicit customer preferences (e.g. ${intent.preferences?.join(', ') || 'none specified'}).
 3. Brand match when specified by the customer (${intent.brand ? 'target brand: ' + intent.brand : 'no specific brand required'}).
 4. Relevant keywords (${intent.keywords?.join(', ') || 'none'}).
@@ -95,7 +107,7 @@ RANKING CRITERIA:
 
 STRICT INSTRUCTIONS:
 - Rank ONLY candidate products that genuinely match the customer's request.
-- Discard candidate products that do not match the customer's primary product type, category, or budget.
+${budgetInstruction}
 - Return at most 3 recommendations (the strongest 3 options). If only 1 or 2 candidates are genuinely relevant, return only those.
 - If NONE of the candidates are truly relevant, return an empty array: "rankedProducts": [].
 - Assign an honest matchScore from 0 to 100 for each recommended product.
@@ -366,6 +378,9 @@ STRICT INSTRUCTIONS:
       const prodPrice = typeof product.price === 'number' && !isNaN(product.price) ? product.price : 0;
       if (intent.maxPrice && prodPrice <= intent.maxPrice) {
         reason += ` at ₹${prodPrice.toLocaleString('en-IN')}, within your ₹${intent.maxPrice.toLocaleString('en-IN')} budget.`;
+      } else if ((product.isBudgetRelaxed || (intent.maxPrice && prodPrice > intent.maxPrice)) && intent.maxPrice) {
+        const diff = prodPrice - intent.maxPrice;
+        reason += ` at ₹${prodPrice.toLocaleString('en-IN')} (closest option, ₹${diff.toLocaleString('en-IN')} above your ₹${intent.maxPrice.toLocaleString('en-IN')} budget).`;
       } else if (prodPrice > 0) {
         reason += ` at ₹${prodPrice.toLocaleString('en-IN')}.`;
       }
