@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StoreStatus {
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  LOW_STOCK
+  OUT_OF_STOCK
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  CREATED
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum AttributionSource {
+  DIRECT
+  AI_CHAT
+  BUNDLE
+  OFFER
+  RECOVERY
+}
+
+enum CommerceEventType {
+  SEARCH
+  RECOMMENDATION_VIEW
+  RECOMMENDATION_CLICK
+  PRODUCT_VIEW
+  ADD_TO_CART
+  REMOVE_FROM_CART
+  CHECKOUT_STARTED
+  OFFER_VIEW
+  OFFER_ACCEPTED
+  OFFER_REJECTED
+  PURCHASE
+}
+
+model Merchant {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  store        Store?
+}
+
+model Store {
+  id          String          @id @default(uuid())
+  merchantId  String          @unique
+  merchant    Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String          @unique
+  description String?
+  status      StoreStatus     @default(UNPUBLISHED)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  products    Product[]
+  events      CommerceEvent[]
+  carts       Cart[]
+  orders      Order[]
+}
+
+model Product {
+  id             String          @id @default(uuid())
+  storeId        String
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  category       String
+  brand          String?
+  price          Decimal         @db.Decimal(10, 2)
+  costPrice      Decimal         @db.Decimal(10, 2)
+  stock          Int             @default(0)
+  images         String[]
+  features       String[]
+  specifications Json?
+  tags           String[]
+  status         ProductStatus   @default(DRAFT)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  events         CommerceEvent[]
+  cartItems      CartItem[]
+  orderItems     OrderItem[]
+
+  @@index([storeId])
+  @@index([category])
+  @@index([status])
+}
+
+model CommerceEvent {
+  id        String            @id @default(uuid())
+  sessionId String
+  storeId   String
+  store     Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product?          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  eventType CommerceEventType
+  metadata  Json?
+  createdAt DateTime          @default(now())
+
+  @@index([sessionId])
+  @@index([storeId])
+  @@index([productId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model Cart {
+  id        String     @id @default(uuid())
+  sessionId String
+  storeId   String
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([sessionId, storeId])
+  @@index([sessionId])
+  @@index([storeId])
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([cartId])
+  @@index([productId])
+}
+
+model Order {
+  id                String        @id @default(uuid())
+  sessionId         String
+  storeId           String
+  store             Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  status            OrderStatus   @default(PENDING)
+  paymentStatus     PaymentStatus @default(CREATED)
+  razorpayOrderId   String?       @unique
+  razorpayPaymentId String?
+  subtotal          Decimal       @db.Decimal(10, 2)
+  discount          Decimal       @default(0) @db.Decimal(10, 2)
+  total             Decimal       @db.Decimal(10, 2)
+  currency          String        @default("INR")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  items             OrderItem[]
+
+  @@index([sessionId])
+  @@index([storeId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id              String   @id @default(uuid())
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productName     String
+  quantity        Int      @default(1)
+  unitPrice       Decimal  @db.Decimal(10, 2)
+  discountPercent Float    @default(0)
+  discountAmount  Decimal  @default(0) @db.Decimal(10, 2)
+  lineTotal         Decimal           @db.Decimal(10, 2)
+  attributionSource AttributionSource @default(DIRECT)
+  createdAt         DateTime          @default(now())
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([attributionSource])
+}
