@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CommerceProvider, useCommerce } from './context/CommerceContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { MerchantSidebar } from './components/merchant/MerchantSidebar';
@@ -24,22 +24,82 @@ import { OrderConfirmationView } from './components/customer/OrderConfirmationVi
 import { OrdersView } from './components/customer/OrdersView';
 import { CustomerRecoveryModal } from './components/customer/CustomerRecoveryModal';
 import { CustomerFooter } from './components/customer/CustomerFooter';
-import { ExperienceSwitcher } from './components/common/ExperienceSwitcher';
+import { CustomerLogin } from './components/customer/CustomerLogin';
 import { Product } from './types';
 
 function MainLayout() {
   const { 
-    experience, 
+    experience,
+    setExperience,
     merchantTab, 
+    setMerchantTab,
     customerTab, 
     setCustomerTab, 
     products, 
+    store,
     addToCart,
     showExitIntentModal, 
     setShowExitIntentModal 
   } = useCommerce();
 
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
+
+  // URL-based routing state using lightweight native browser routing
+  const [currentPath, setCurrentPath] = useState<string>(() => 
+    typeof window !== 'undefined' ? window.location.pathname : '/'
+  );
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = (to: string) => {
+    if (typeof window !== 'undefined' && to !== window.location.pathname) {
+      window.history.pushState({}, '', to);
+      setCurrentPath(to);
+    }
+  };
+
+  // Top-level experience boundary derived from URL
+  const isMerchantRoute = currentPath.startsWith('/merchant');
+
+  // Synchronize in-memory experience state in CommerceContext with URL
+  useEffect(() => {
+    if (isMerchantRoute) {
+      if (experience !== 'merchant') {
+        setExperience('merchant');
+      }
+    } else {
+      if (experience !== 'customer') {
+        setExperience('customer');
+      }
+    }
+  }, [isMerchantRoute, experience, setExperience]);
+
+  // Derive active merchant tab from URL if present
+  useEffect(() => {
+    if (isMerchantRoute && isAuthenticated) {
+      const match = currentPath.match(/^\/merchant\/(dashboard|orders|products|store-management|ai-control|discount-optimizer|analytics|settings)/i);
+      if (match && match[1]) {
+        const urlTab = match[1].toLowerCase() as typeof merchantTab;
+        if (urlTab !== merchantTab) {
+          setMerchantTab(urlTab);
+        }
+      }
+    }
+  }, [currentPath, isMerchantRoute, isAuthenticated, merchantTab, setMerchantTab]);
+
+  // Customer sub-route parsing: /store/:slug/login, /store/:slug, /login, etc.
+  const storeSlugMatch = currentPath.match(/^\/store\/([^/]+)/i);
+  const activeSlug = storeSlugMatch ? storeSlugMatch[1] : undefined;
+  const isCustomerLogin = !isMerchantRoute && (currentPath.endsWith('/login') || currentPath === '/login');
+
+  // Determine initial mode for MerchantAuth if unauthenticated
+  const merchantAuthMode = currentPath === '/merchant/register' ? 'register' : 'login';
 
   // Customer Modals & State
   const [selectedProductForModal, setSelectedProductForModal] = useState<Product | null>(null);
@@ -48,11 +108,8 @@ function MainLayout() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans flex flex-col selection:bg-blue-100 selection:text-blue-900">
-      {/* Experience Switcher */}
-      <ExperienceSwitcher />
-
-      {experience === 'merchant' ? (
-        /* MERCHANT SUITE EXPERIENCE */
+      {isMerchantRoute ? (
+        /* MERCHANT SUITE EXPERIENCE (/merchant/*) */
         isAuthLoading ? (
           <div className="min-h-[80vh] flex flex-col items-center justify-center">
             <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -62,7 +119,7 @@ function MainLayout() {
           <div className="flex-1 flex flex-col">
             <MerchantHeader />
             <div className="flex-1 flex items-center justify-center p-6 bg-[#F8FAFC]">
-              <MerchantAuth />
+              <MerchantAuth initialMode={merchantAuthMode} />
             </div>
           </div>
         ) : (
@@ -86,34 +143,49 @@ function MainLayout() {
           </div>
         )
       ) : (
-        /* CUSTOMER STOREFRONT EXPERIENCE */
+        /* CUSTOMER STOREFRONT EXPERIENCE (/, /store/:slug, /store/:slug/*) */
         <div className="min-h-screen flex flex-col bg-white">
-          <CustomerHeader onOpenCart={() => setIsCartOpen(true)} />
+          <CustomerHeader 
+            onOpenCart={() => setIsCartOpen(true)} 
+            onOpenLogin={() => {
+              const targetSlug = store?.slug || activeSlug || 'opticommerce-flagship-electronics';
+              navigate(`/store/${targetSlug}/login`);
+            }}
+          />
 
           <main className="flex-1">
-            {(customerTab === 'home' || customerTab === 'categories') && (
-              <CustomerHome
-                onSelectProduct={(prod) => setSelectedProductForModal(prod)}
-                onOpenCart={() => setIsCartOpen(true)}
+            {isCustomerLogin ? (
+              <CustomerLogin 
+                storeSlug={activeSlug}
+                onNavigate={navigate}
               />
-            )}
+            ) : (
+              <>
+                {(customerTab === 'home' || customerTab === 'categories') && (
+                  <CustomerHome
+                    onSelectProduct={(prod) => setSelectedProductForModal(prod)}
+                    onOpenCart={() => setIsCartOpen(true)}
+                  />
+                )}
 
-            {(customerTab === 'ai-assistant' || customerTab === 'storefront') && (
-              <AIChatShoppingView
-                onSelectProduct={(prod) => setSelectedProductForModal(prod)}
-                onOpenCart={() => setIsCartOpen(true)}
-              />
-            )}
+                {(customerTab === 'ai-assistant' || customerTab === 'storefront') && (
+                  <AIChatShoppingView
+                    onSelectProduct={(prod) => setSelectedProductForModal(prod)}
+                    onOpenCart={() => setIsCartOpen(true)}
+                  />
+                )}
 
-            {customerTab === 'shop' && (
-              <ManualShopView
-                onSelectProduct={(prod) => setSelectedProductForModal(prod)}
-                onOpenCart={() => setIsCartOpen(true)}
-              />
-            )}
+                {customerTab === 'shop' && (
+                  <ManualShopView
+                    onSelectProduct={(prod) => setSelectedProductForModal(prod)}
+                    onOpenCart={() => setIsCartOpen(true)}
+                  />
+                )}
 
-            {customerTab === 'orders' && <OrdersView />}
-            {customerTab === 'confirmation' && <OrderConfirmationView />}
+                {customerTab === 'orders' && <OrdersView />}
+                {customerTab === 'confirmation' && <OrderConfirmationView />}
+              </>
+            )}
           </main>
 
           <CustomerFooter />

@@ -2,9 +2,13 @@ import React, { useState } from 'react';
 import { Mail, Lock, User, Store, ArrowRight, AlertCircle, Loader2, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-export function MerchantAuth() {
+export function MerchantAuth({ initialMode = 'login' }: { initialMode?: 'login' | 'register' } = {}) {
   const { login, register } = useAuth();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
+
+  React.useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   // Form fields
   const [name, setName] = useState('');

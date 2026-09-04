@@ -9,7 +9,13 @@ import {
   Sparkles
 } from 'lucide-react';
 
-export function CustomerHeader({ onOpenCart }: { onOpenCart: () => void }) {
+export function CustomerHeader({ 
+  onOpenCart, 
+  onOpenLogin 
+}: { 
+  onOpenCart: () => void; 
+  onOpenLogin?: () => void; 
+}) {
   const { 
     customerTab, 
     setCustomerTab, 
@@ -118,8 +124,12 @@ export function CustomerHeader({ onOpenCart }: { onOpenCart: () => void }) {
             )}
           </button>
 
-          {/* Customer Avatar */}
-          <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center border-2 border-white shadow-xs cursor-pointer hover:bg-blue-700 transition-colors">
+          {/* Customer Avatar / Sign In */}
+          <div 
+            onClick={onOpenLogin}
+            title="Customer Account / Sign In"
+            className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center border-2 border-white shadow-xs cursor-pointer hover:bg-blue-700 transition-colors"
+          >
             <User className="w-4 h-4" />
           </div>
         </nav>
