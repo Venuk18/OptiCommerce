@@ -61,6 +61,7 @@ function MainLayout() {
     if (typeof window !== 'undefined' && to !== window.location.pathname) {
       window.history.pushState({}, '', to);
       setCurrentPath(to);
+      window.dispatchEvent(new PopStateEvent('popstate'));
     }
   };
 

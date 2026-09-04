@@ -27,9 +27,7 @@ export function StoreManagement() {
     isStoreLoading, 
     storeError: contextStoreError, 
     refreshStore, 
-    setStore,
-    setExperience,
-    setCustomerTab
+    setStore
   } = useCommerce();
 
   // Local Form state
@@ -345,9 +343,29 @@ export function StoreManagement() {
                   className="w-full p-3 font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-slate-900 disabled:opacity-60"
                 />
               </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Store URL: <span className="font-mono text-slate-600 font-semibold">https://opticommerce.io/store/{slug || 'your-slug'}</span>
-              </p>
+              <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+                <span>
+                  Store URL: <span className="font-mono text-slate-600 font-semibold">{typeof window !== 'undefined' ? `${window.location.origin}/store/${store?.slug || slug || 'your-slug'}` : `/store/${store?.slug || slug || 'your-slug'}`}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(typeof window !== 'undefined' ? `${window.location.origin}/store/${store?.slug || slug || 'opticommerce-flagship-electronics'}` : `/store/${store?.slug || slug || 'opticommerce-flagship-electronics'}`, 'storeUrl')}
+                  className="font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Copy Storefront URL"
+                >
+                  {copiedField === 'storeUrl' ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      <span className="text-emerald-600">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      <span>Copy URL</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Support / Merchant Email */}
@@ -454,16 +472,15 @@ export function StoreManagement() {
 
           <div>
             {store?.status === 'PUBLISHED' ? (
-              <button
-                onClick={() => {
-                  setExperience('customer');
-                  setCustomerTab('storefront');
-                }}
+              <a
+                href={`/store/${store?.slug || slug || 'opticommerce-flagship-electronics'}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
               >
                 <span>View Live Store</span>
                 <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
+              </a>
             ) : (
               <button
                 onClick={() => handleStatusChange('PUBLISHED')}

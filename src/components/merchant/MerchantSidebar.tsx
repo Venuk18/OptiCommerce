@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 export function MerchantSidebar() {
-  const { merchantTab, setMerchantTab, setExperience, setCustomerTab } = useCommerce();
+  const { merchantTab, setMerchantTab, store } = useCommerce();
 
   const suiteNavItems: { id: MerchantTab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -99,16 +99,15 @@ export function MerchantSidebar() {
             <span>Customer Storefront</span>
           </div>
           <p className="text-[11px] text-slate-400 mb-3">Live catalog synced with AI guardrails</p>
-          <button
-            onClick={() => {
-              setExperience('customer');
-              setCustomerTab('storefront');
-            }}
+          <a
+            href={`/store/${store?.slug || 'opticommerce-flagship-electronics'}`}
+            target="_blank"
+            rel="noopener noreferrer"
             className="w-full py-2 bg-white hover:bg-slate-100 text-slate-900 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"
           >
             <span>Launch Storefront</span>
             <ArrowUpRight className="w-3.5 h-3.5" />
-          </button>
+          </a>
         </div>
       </div>
     </aside>

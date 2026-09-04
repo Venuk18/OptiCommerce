@@ -280,13 +280,23 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
 
   const FLAGSHIP_SLUG = 'opticommerce-flagship-electronics';
 
+  // Helper to extract store slug from URL when path is /store/:slug or /store/:slug/*
+  const getUrlStoreSlug = (): string | null => {
+    if (typeof window === 'undefined') return null;
+    const match = window.location.pathname.match(/^\/store\/([^/]+)/i);
+    return match ? match[1] : null;
+  };
+
   // Refresh Store from GET /api/stores/:slug
   const refreshStore = useCallback(async (customSlug?: string): Promise<Store | null> => {
     setIsStoreLoading(true);
     setStoreError(null);
 
-    // Resolution: explicitly selected public slug, or stored public slug, or flagship default
-    const requestedSlug = customSlug || localStorage.getItem('opticommerce_store_slug') || FLAGSHIP_SLUG;
+    // Extract slug from URL only when path is /store/:slug or /store/:slug/*
+    const urlSlug = getUrlStoreSlug();
+
+    // Resolution: explicitly selected public slug, or URL slug, or stored public slug, or flagship default
+    const requestedSlug = customSlug || urlSlug || localStorage.getItem('opticommerce_store_slug') || FLAGSHIP_SLUG;
 
     try {
       const fetchedStore = await storeService.getStore(requestedSlug);
@@ -341,6 +351,19 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshStore();
+  }, [refreshStore]);
+
+  // Synchronize customer store when URL slug changes through browser navigation (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const urlSlug = getUrlStoreSlug();
+      if (urlSlug) {
+        refreshStore(urlSlug);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, [refreshStore]);
 
   // AI constraints
