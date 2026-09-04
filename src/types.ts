@@ -27,6 +27,11 @@ export interface Product {
   matchBadgeColor?: 'blue' | 'purple' | 'emerald';
   matchHighlightQuote?: string;
   matchHighlightType?: 'check' | 'info';
+  whyRecommended?: string;
+  keyAdvantage?: string;
+  tradeoff?: string | null;
+  fitRole?: string;
+  bestFor?: string;
 }
 
 export interface AIChatTurn {

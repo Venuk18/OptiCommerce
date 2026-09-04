@@ -4,6 +4,8 @@ import { CandidateProduct } from '../../types/search.types';
 import { RankedProduct, RankProductsResult } from '../../types/ranking.types';
 import { getGeminiClient } from './gemini.client';
 import { RELEVANCE_MIN_THRESHOLD } from './candidate-retrieval.service';
+import { aiProviderOrchestrator } from './providers/ai-provider.orchestrator';
+import { aiConfig } from '../../config/ai.config';
 
 const MAX_CANDIDATES = 10;
 const MAX_RECOMMENDED_LIMIT = 3;
@@ -27,22 +29,121 @@ export class ProductRankingService {
     // 2. Cap candidates at maximum 10
     const boundedCandidates = candidates.slice(0, MAX_CANDIDATES);
 
-    // 3. Try ranking with Gemini (at most ONE Gemini call)
-    const geminiClient = aiClientOverride !== undefined ? aiClientOverride : getGeminiClient();
-    if (geminiClient) {
+    // 3. Try ranking with AI provider orchestrator (or aiClientOverride if provided)
+    if (aiClientOverride !== undefined) {
+      if (aiClientOverride) {
+        try {
+          const aiRankings = await this.rankWithGemini(aiClientOverride, intent, boundedCandidates);
+          if (aiRankings && this.validateAiRankings(aiRankings, boundedCandidates)) {
+            return { rankedProducts: aiRankings };
+          }
+        } catch (error) {
+          console.warn('AI product ranking override failed or timed out. Falling back to deterministic ranking.', error);
+        }
+      }
+    } else {
       try {
-        const aiRankings = await this.rankWithGemini(geminiClient, intent, boundedCandidates);
+        const aiRankings = await this.rankWithAI(intent, boundedCandidates);
         if (aiRankings && this.validateAiRankings(aiRankings, boundedCandidates)) {
           return { rankedProducts: aiRankings };
         }
       } catch (error) {
-        console.warn('Gemini product ranking failed or timed out. Falling back to deterministic ranking.', error);
+        console.warn('AI product ranking failed. Falling back to deterministic ranking.', error);
       }
     }
 
     // 4. Fallback: Deterministic ranking using Phase 4B relevance scores
     const fallbackRankings = this.deterministicFallbackRanking(intent, boundedCandidates);
     return { rankedProducts: fallbackRankings };
+  }
+
+  /**
+   * Ranks candidates using the multi-provider orchestrator (Groq -> Cerebras -> Gemini).
+   */
+  private async rankWithAI(
+    intent: CustomerIntent,
+    candidates: CandidateProduct[]
+  ): Promise<RankedProduct[] | null> {
+    const sanitizedCandidates = candidates.map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      category: c.category,
+      brand: c.brand,
+      price: c.price,
+      features: c.features,
+      specifications: c.specifications,
+      tags: c.tags,
+      relevanceScore: c.relevanceScore,
+    }));
+
+    const prompt = `You are an expert commerce ranking assistant.
+Rank ONLY the provided candidate products according to the customer's intent.
+
+CUSTOMER INTENT:
+${JSON.stringify(intent, null, 2)}
+
+CANDIDATE PRODUCTS (${sanitizedCandidates.length} items):
+${JSON.stringify(sanitizedCandidates, null, 2)}
+
+RANKING CRITERIA:
+1. Category and price/budget compatibility (strictly prioritize candidates within budget: ${intent.maxPrice ? 'under ₹' + intent.maxPrice : 'any'}).
+2. Explicit customer preferences (e.g. ${intent.preferences?.join(', ') || 'none specified'}).
+3. Brand match when specified by the customer (${intent.brand ? 'target brand: ' + intent.brand : 'no specific brand required'}).
+4. Relevant keywords (${intent.keywords?.join(', ') || 'none'}).
+5. Product description, features, and specifications.
+
+STRICT INSTRUCTIONS:
+- Rank ONLY candidate products that genuinely match the customer's request.
+- Discard candidate products that do not match the customer's primary product type, category, or budget.
+- Return at most 3 recommendations (the strongest 3 options). If only 1 or 2 candidates are genuinely relevant, return only those.
+- If NONE of the candidates are truly relevant, return an empty array: "rankedProducts": [].
+- Assign an honest matchScore from 0 to 100 for each recommended product.
+- Provide a concise, customer-friendly explanation (1-2 sentences) in the "reason" field explaining why this product satisfies their query.
+- NEVER invent new product IDs, names, or specifications. Use ONLY the given product IDs.
+- Return strictly structured JSON matching this schema:
+{
+  "rankedProducts": [
+    {
+      "productId": "string",
+      "rank": 1,
+      "matchScore": 95,
+      "reason": "explanation string"
+    }
+  ]
+}`;
+
+    const result = await aiProviderOrchestrator.generateJson<{ rankedProducts: any[] }>(prompt, {
+      operationName: 'product ranking',
+      systemInstruction:
+        'You are an AI product ranking system. Output strictly structured JSON according to the schema. Rank ONLY the candidate products provided in the prompt. Never invent product IDs or features.',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          rankedProducts: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                productId: { type: Type.STRING },
+                rank: { type: Type.INTEGER },
+                matchScore: { type: Type.INTEGER },
+                reason: { type: Type.STRING },
+              },
+              required: ['productId', 'rank', 'matchScore', 'reason'],
+            },
+          },
+        },
+        required: ['rankedProducts'],
+      },
+      timeoutMs: GEMINI_TIMEOUT_MS,
+    });
+
+    if (!result?.data || !Array.isArray(result.data.rankedProducts)) {
+      return null;
+    }
+
+    return result.data.rankedProducts.slice(0, MAX_RECOMMENDED_LIMIT);
   }
 
   /**
@@ -93,7 +194,7 @@ STRICT INSTRUCTIONS:
 - NEVER invent new product IDs, names, or specifications. Use ONLY the given product IDs.`;
 
     const rankingPromise = ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: aiConfig.gemini.model || 'gemini-3.6-flash',
       contents: prompt,
       config: {
         systemInstruction:

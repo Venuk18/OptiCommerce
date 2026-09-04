@@ -222,14 +222,31 @@ export function AIChatShoppingView({ onSelectProduct, onOpenCart }: AIChatShoppi
                             </div>
                           </div>
 
-                          {/* Quote Highlight Box matching screen */}
-                          <div className="mt-4 p-3 bg-slate-50/90 rounded-xl border border-slate-100 flex items-start gap-2.5 text-xs text-slate-700 font-normal leading-relaxed">
-                            {product.matchHighlightType === 'info' || isPurpleBadge ? (
-                              <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-                            ) : (
-                              <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                          {/* Phase 4: Sales Reasoner & Honest Trade-offs Box */}
+                          <div className="mt-4 p-3 bg-slate-50/90 rounded-xl border border-slate-100 text-xs text-slate-700 font-normal leading-relaxed space-y-2">
+                            <div>
+                              <div className="flex items-center gap-1.5 text-blue-600 font-semibold text-[11px] mb-1">
+                                <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                <span>Why this fits you</span>
+                              </div>
+                              <p className="text-slate-700 text-xs leading-relaxed">
+                                {product.whyRecommended || product.matchHighlightQuote || product.matchReason || 'Optimal match for your specifications.'}
+                              </p>
+                            </div>
+
+                            {product.keyAdvantage && (
+                              <div className="text-[11px] text-slate-600 flex items-start gap-1.5 pt-1 border-t border-slate-200/50">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                                <span><strong className="font-semibold text-slate-800">Advantage:</strong> {product.keyAdvantage}</span>
+                              </div>
                             )}
-                            <span>"{product.matchHighlightQuote || product.matchReason || 'Optimal match for your specifications.'}"</span>
+
+                            {product.tradeoff && (
+                              <div className="text-[11px] text-amber-800 flex items-start gap-1.5 bg-amber-50/70 p-2 rounded-lg border border-amber-200/50">
+                                <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                <span><strong className="font-semibold text-amber-900">Trade-off:</strong> {product.tradeoff}</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Action Buttons Row */}

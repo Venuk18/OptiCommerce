@@ -228,7 +228,12 @@ export class CartService {
       throw new AppError(`Cart item '${itemId}' not found`, 404);
     }
 
-    if (cartItem.cart.sessionId !== sessionId.trim() || cartItem.cart.storeId !== storeId.trim()) {
+    const cart = cartItem.cart || (await prisma.cart.findUnique({ where: { id: cartItem.cartId } }));
+    if (!cart) {
+      throw new AppError('Cart not found for item', 404);
+    }
+
+    if (cart.sessionId !== sessionId.trim() || cart.storeId !== storeId.trim()) {
       throw new AppError(`Cart item does not belong to the active session and store`, 404);
     }
 
@@ -281,7 +286,12 @@ export class CartService {
       throw new AppError(`Cart item '${itemId}' not found`, 404);
     }
 
-    if (cartItem.cart.sessionId !== sessionId.trim() || cartItem.cart.storeId !== storeId.trim()) {
+    const cart = cartItem.cart || (await prisma.cart.findUnique({ where: { id: cartItem.cartId } }));
+    if (!cart) {
+      throw new AppError('Cart not found for item', 404);
+    }
+
+    if (cart.sessionId !== sessionId.trim() || cart.storeId !== storeId.trim()) {
       throw new AppError(`Cart item does not belong to the active session and store`, 404);
     }
 

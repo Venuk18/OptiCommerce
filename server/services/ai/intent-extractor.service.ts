@@ -10,6 +10,8 @@ import { ConversationState, ConversationMessageHistory } from '../../types/recom
 import { referenceResolverService } from './reference-resolver.service';
 import { dissatisfactionDetectorService } from './dissatisfaction-detector.service';
 import { getGeminiClient } from './gemini.client';
+import { aiProviderOrchestrator } from './providers/ai-provider.orchestrator';
+import { aiConfig } from '../../config/ai.config';
 
 export interface IntentExtractionContext {
   state?: ConversationState;
@@ -213,21 +215,17 @@ export class IntentExtractorService {
     let rawIntent: CustomerIntent | null = null;
     let source: 'ai' | 'fallback' | 'context_merged' = 'fallback';
 
-    const aiClient = getGeminiClient();
-
-    if (aiClient) {
-      try {
-        const aiIntent = await this.extractWithGemini(aiClient, trimmedQuery);
-        if (aiIntent) {
-          const validated = this.validateAndSanitizeIntent(aiIntent);
-          if (validated) {
-            rawIntent = validated;
-            source = 'ai';
-          }
+    try {
+      const aiIntent = await this.extractWithAI(trimmedQuery);
+      if (aiIntent) {
+        const validated = this.validateAndSanitizeIntent(aiIntent);
+        if (validated) {
+          rawIntent = validated;
+          source = 'ai';
         }
-      } catch (err) {
-        // Safe silent fallback when AI fails or times out
       }
+    } catch (err) {
+      // Safe silent fallback when AI fails or times out
     }
 
     if (!rawIntent) {
@@ -433,6 +431,76 @@ export class IntentExtractorService {
   }
 
   /**
+   * Calls AI using the quota-efficient multi-provider orchestrator (Groq -> Cerebras -> Gemini).
+   */
+  private async extractWithAI(query: string): Promise<any | null> {
+    const result = await aiProviderOrchestrator.generateJson<any>(`Customer Query: "${query}"`, {
+      operationName: 'intent extraction',
+      systemInstruction: `You are an expert commerce shopping intent parser.
+Your ONLY task is to extract structured shopping intent from a customer's query.
+
+CRITICAL RULES:
+1. ONLY extract values that are explicitly mentioned or directly implied by the customer's query.
+2. DO NOT recommend products, DO NOT invent products, DO NOT invent prices, DO NOT generate discounts, DO NOT calculate revenue.
+3. Use null for any field that cannot be determined from the query.
+4. "minPrice": A non-negative number if a minimum budget/price is specified (e.g., "above 2000", "from 1000"), else null.
+5. "maxPrice": A non-negative number if a maximum budget/price is specified (e.g., "under 5000", "below ₹3000", "budget 4000"), else null.
+6. "category": The product category or type requested (e.g., "earbuds", "headphones", "laptop", "camera", "charger"), in lower-case singular form, or null if none.
+7. "brand": The specific brand name requested (e.g., "Sony", "Apple", "ZenAudio"), or null if none.
+8. "preferences": An array of feature/spec preferences requested (e.g., ["strong bass", "good battery life", "active noise cancellation"]).
+9. "keywords": An array of important search keywords from the query (e.g., ["wireless", "earbuds", "bass"]). Maximum 10 items.
+10. Return strictly structured JSON matching this schema:
+{
+  "category": string or null,
+  "brand": string or null,
+  "minPrice": number or null,
+  "maxPrice": number or null,
+  "preferences": string[],
+  "keywords": string[]
+}`,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          category: {
+            type: Type.STRING,
+            description: 'The product category or type requested, or null if not mentioned.',
+          },
+          brand: {
+            type: Type.STRING,
+            description: 'Specific brand name requested, or null if not mentioned.',
+          },
+          minPrice: {
+            type: Type.NUMBER,
+            description: 'Minimum price or budget limit in currency units, or null if not mentioned.',
+          },
+          maxPrice: {
+            type: Type.NUMBER,
+            description: 'Maximum price or budget limit in currency units, or null if not mentioned.',
+          },
+          preferences: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.STRING,
+            },
+            description: 'List of product features or quality preferences specified by the customer.',
+          },
+          keywords: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.STRING,
+            },
+            description: 'List of relevant keywords extracted from the user query.',
+          },
+        },
+        required: ['preferences', 'keywords'],
+      },
+      timeoutMs: 5000,
+    });
+
+    return result?.data || null;
+  }
+
+  /**
    * Calls Gemini using @google/genai SDK with structured output schema.
    */
   private async extractWithGemini(
@@ -447,7 +515,7 @@ export class IntentExtractorService {
 
     const callPromise = (async () => {
       const response = await aiClient.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: aiConfig.gemini.model || 'gemini-3.6-flash',
         contents: query,
         config: {
           systemInstruction: `You are an expert commerce shopping intent parser.
@@ -640,7 +708,11 @@ CRITICAL RULES:
     if (typeof raw.category === 'string' && raw.category.trim().length > 0) {
       const cleanCat = raw.category.trim().toLowerCase();
       if (cleanCat !== 'null' && cleanCat !== 'none' && cleanCat !== 'undefined') {
-        category = cleanCat;
+        const matchedKnown = KNOWN_CATEGORIES.find(cat =>
+          cat.name.toLowerCase() === cleanCat ||
+          cat.keywords.some(kw => kw.toLowerCase() === cleanCat)
+        );
+        category = matchedKnown ? matchedKnown.name : cleanCat;
       }
     }
 

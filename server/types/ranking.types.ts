@@ -10,6 +10,7 @@ export interface RankedProduct {
   keyAdvantage?: string;
   tradeoff?: string | null;
   fitRole?: string;
+  bestFor?: string;
 }
 
 export interface RankProductsInput {

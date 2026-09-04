@@ -1,5 +1,6 @@
 import { Type } from '@google/genai';
 import { getGeminiClient } from './gemini.client';
+import { aiProviderOrchestrator } from './providers/ai-provider.orchestrator';
 
 export interface GenerateDescriptionInput {
   name: string;
@@ -81,74 +82,109 @@ export class DescriptionGeneratorService {
   ): Promise<GenerateDescriptionResult> {
     const fallback = this.generateDeterministicFallback(input);
 
-    const ai = aiClientOverride !== undefined ? aiClientOverride : getGeminiClient();
-    if (!ai) {
-      return { description: fallback, source: 'fallback' };
+    const sanitizedAttributes: Record<string, any> = {
+      name: input.name.trim(),
+      category: input.category.trim(),
+    };
+    if (input.brand?.trim()) sanitizedAttributes.brand = input.brand.trim();
+    if (Array.isArray(input.tags) && input.tags.length > 0) {
+      sanitizedAttributes.tags = input.tags.slice(0, 10);
+    }
+    if (Array.isArray(input.features) && input.features.length > 0) {
+      sanitizedAttributes.features = input.features.slice(0, 10);
+    }
+    if (input.specifications && typeof input.specifications === 'object') {
+      sanitizedAttributes.specifications = input.specifications;
     }
 
-    try {
-      const sanitizedAttributes: Record<string, any> = {
-        name: input.name.trim(),
-        category: input.category.trim(),
-      };
-      if (input.brand?.trim()) sanitizedAttributes.brand = input.brand.trim();
-      if (Array.isArray(input.tags) && input.tags.length > 0) {
-        sanitizedAttributes.tags = input.tags.slice(0, 10);
-      }
-      if (Array.isArray(input.features) && input.features.length > 0) {
-        sanitizedAttributes.features = input.features.slice(0, 10);
-      }
-      if (input.specifications && typeof input.specifications === 'object') {
-        sanitizedAttributes.specifications = input.specifications;
-      }
-
-      const prompt = `PRODUCT ATTRIBUTES:
+    const prompt = `PRODUCT ATTRIBUTES:
 ${JSON.stringify(sanitizedAttributes, null, 2)}
 
 INSTRUCTIONS:
 Write a concise, factual, and engaging ecommerce product description (2-3 sentences, 40-80 words).
 Focus on product utility and key features based strictly on the provided attributes.
-Do not invent unsupported technical specifications, prices, discounts, certifications, or warranty claims.`;
+Do not invent unsupported technical specifications, prices, discounts, certifications, or warranty claims.
+Return strictly structured JSON:
+{
+  "description": "..."
+}`;
 
-      const aiCallPromise = ai.models.generateContent({
-        model: 'gemini-3.7-flash',
-        contents: prompt,
-        config: {
-          systemInstruction:
-            'You are an expert ecommerce product copywriter. Output strictly structured JSON according to the schema. Generate a concise, factual description based ONLY on the provided attributes. NEVER invent unsupported specifications or claims. NEVER mention cost price, margins, or discounts.',
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              description: {
-                type: Type.STRING,
-                description: 'A concise, factual ecommerce product description.',
-              },
-            },
-            required: ['description'],
-          },
-        },
-      });
+    const systemInstruction =
+      'You are an expert ecommerce product copywriter. Output strictly structured JSON according to the schema. Generate a concise, factual description based ONLY on the provided attributes. NEVER invent unsupported specifications or claims. NEVER mention cost price, margins, or discounts.';
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini description generation timed out')), GEMINI_TIMEOUT_MS)
-      );
-
-      const response = await Promise.race([aiCallPromise, timeoutPromise]);
-      const responseText = response.text;
-
-      if (!responseText) {
+    // If explicit override provided (e.g. In unit tests), use it directly
+    if (aiClientOverride !== undefined) {
+      if (!aiClientOverride) {
         return { description: fallback, source: 'fallback' };
       }
+      try {
+        const aiCallPromise = aiClientOverride.models.generateContent({
+          model: 'gemini-3.7-flash',
+          contents: prompt,
+          config: {
+            systemInstruction,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                description: {
+                  type: Type.STRING,
+                  description: 'A concise, factual ecommerce product description.',
+                },
+              },
+              required: ['description'],
+            },
+          },
+        });
 
-      const parsed = JSON.parse(responseText);
-      if (parsed && typeof parsed.description === 'string' && parsed.description.trim().length > 0) {
-        return { description: parsed.description.trim(), source: 'ai' };
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Gemini description generation timed out')), GEMINI_TIMEOUT_MS)
+        );
+
+        const response = await Promise.race([aiCallPromise, timeoutPromise]);
+        const responseText = response.text;
+
+        if (!responseText) {
+          return { description: fallback, source: 'fallback' };
+        }
+
+        const parsed = JSON.parse(responseText);
+        if (parsed && typeof parsed.description === 'string' && parsed.description.trim().length > 0) {
+          return { description: parsed.description.trim(), source: 'ai' };
+        }
+
+        return { description: fallback, source: 'fallback' };
+      } catch (err) {
+        console.warn('[DescriptionGeneratorService] AI override call failed, using deterministic fallback:', (err as any)?.message);
+        return { description: fallback, source: 'fallback' };
+      }
+    }
+
+    // Default: Multi-provider quota-efficient orchestrator (Groq -> Cerebras -> Gemini)
+    try {
+      const result = await aiProviderOrchestrator.generateJson<{ description: string }>(prompt, {
+        operationName: 'description generation',
+        systemInstruction,
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            description: {
+              type: Type.STRING,
+              description: 'A concise, factual ecommerce product description.',
+            },
+          },
+          required: ['description'],
+        },
+        timeoutMs: GEMINI_TIMEOUT_MS,
+      });
+
+      if (result?.data && typeof result.data.description === 'string' && result.data.description.trim().length > 0) {
+        return { description: result.data.description.trim(), source: 'ai' };
       }
 
       return { description: fallback, source: 'fallback' };
     } catch (err) {
-      console.warn('[DescriptionGeneratorService] Gemini call failed, using deterministic fallback:', (err as any)?.message);
+      console.warn('[DescriptionGeneratorService] AI provider call failed, using deterministic fallback:', (err as any)?.message);
       return { description: fallback, source: 'fallback' };
     }
   }

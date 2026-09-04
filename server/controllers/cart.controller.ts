@@ -26,7 +26,7 @@ export class CartController {
   async getCart(req: Request, res: Response, next: NextFunction) {
     try {
       const sessionId = (req.query.sessionId as string) || (req.headers['x-session-id'] as string) || '';
-      const storeId = (req.query.storeId as string) || '';
+      const storeId = (req.query.storeId as string) || (req.headers['x-store-id'] as string) || '';
 
       const cart = await cartService.getCart(sessionId, storeId);
 
@@ -47,7 +47,7 @@ export class CartController {
 
       const cart = await cartService.addItem({
         sessionId: sessionId || (req.headers['x-session-id'] as string) || '',
-        storeId,
+        storeId: storeId || (req.headers['x-store-id'] as string) || '',
         productId,
         quantity: quantity !== undefined ? Number(quantity) : 1,
       });
@@ -70,7 +70,7 @@ export class CartController {
 
       const cart = await cartService.updateItemQuantity(itemId, {
         sessionId: sessionId || (req.headers['x-session-id'] as string) || '',
-        storeId,
+        storeId: storeId || (req.headers['x-store-id'] as string) || '',
         quantity: Number(quantity),
       });
 
@@ -89,7 +89,7 @@ export class CartController {
     try {
       const { itemId } = req.params;
       const sessionId = (req.query.sessionId as string) || req.body?.sessionId || (req.headers['x-session-id'] as string) || '';
-      const storeId = (req.query.storeId as string) || req.body?.storeId || '';
+      const storeId = (req.query.storeId as string) || req.body?.storeId || (req.headers['x-store-id'] as string) || '';
 
       const cart = await cartService.removeItem(itemId, sessionId, storeId);
 
@@ -107,7 +107,7 @@ export class CartController {
   async clearCart(req: Request, res: Response, next: NextFunction) {
     try {
       const sessionId = (req.query.sessionId as string) || req.body?.sessionId || (req.headers['x-session-id'] as string) || '';
-      const storeId = (req.query.storeId as string) || req.body?.storeId || '';
+      const storeId = (req.query.storeId as string) || req.body?.storeId || (req.headers['x-store-id'] as string) || '';
 
       const cart = await cartService.clearCart(sessionId, storeId);
 

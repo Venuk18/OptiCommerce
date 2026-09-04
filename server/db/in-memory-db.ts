@@ -51,6 +51,7 @@ export interface InMemoryCartItem {
   createdAt: Date;
   updatedAt: Date;
   product?: InMemoryProduct;
+  cart?: InMemoryCart;
 }
 
 export interface InMemoryCart {
@@ -784,6 +785,31 @@ export function createInMemoryPrismaProxy() {
         if (args.include?.product) {
           result.product = inMemoryDb.products.get(target.productId);
         }
+        if (args.include?.cart) {
+          result.cart = inMemoryDb.carts.get(target.cartId);
+        }
+        return result;
+      },
+      findFirst: async (args?: { where?: any; include?: any }) => {
+        let items = Array.from(inMemoryDb.cartItems.values());
+        if (args?.where?.id) {
+          items = items.filter((item) => item.id === args.where.id);
+        }
+        if (args?.where?.cartId) {
+          items = items.filter((item) => item.cartId === args.where.cartId);
+        }
+        if (args?.where?.productId) {
+          items = items.filter((item) => item.productId === args.where.productId);
+        }
+        const target = items[0] || null;
+        if (!target) return null;
+        const result = { ...target };
+        if (args?.include?.product) {
+          result.product = inMemoryDb.products.get(target.productId);
+        }
+        if (args?.include?.cart) {
+          result.cart = inMemoryDb.carts.get(target.cartId);
+        }
         return result;
       },
       findMany: async (args?: { where?: any }) => {
@@ -808,6 +834,9 @@ export function createInMemoryPrismaProxy() {
         if (args.include?.product) {
           result.product = inMemoryDb.products.get(item.productId);
         }
+        if (args.include?.cart) {
+          result.cart = inMemoryDb.carts.get(item.cartId);
+        }
         return result;
       },
       update: async (args: { where: { id: string }; data: any; include?: any }) => {
@@ -818,6 +847,9 @@ export function createInMemoryPrismaProxy() {
         const result = { ...updated };
         if (args.include?.product) {
           result.product = inMemoryDb.products.get(item.productId);
+        }
+        if (args.include?.cart) {
+          result.cart = inMemoryDb.carts.get(item.cartId);
         }
         return result;
       },

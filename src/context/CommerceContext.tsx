@@ -475,9 +475,14 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
               ...matchedProd,
               matchScore: rec.matchScore,
               matchReason: rec.reason,
-              matchHighlightQuote: rec.reason,
-              matchBadge: `${rec.matchScore}% Match`,
+              matchHighlightQuote: rec.whyRecommended || rec.reason,
+              matchBadge: rec.fitRole || `${rec.matchScore}% Match`,
               matchBadgeColor: rec.rank === 1 ? 'blue' : 'purple',
+              whyRecommended: rec.whyRecommended,
+              keyAdvantage: rec.keyAdvantage,
+              tradeoff: rec.tradeoff,
+              fitRole: rec.fitRole,
+              bestFor: rec.bestFor || rec.fitRole,
             };
             recommendedList.push(decorated);
           }

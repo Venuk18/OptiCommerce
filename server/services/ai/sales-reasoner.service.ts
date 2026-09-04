@@ -4,6 +4,8 @@ import { CandidateProduct } from '../../types/search.types';
 import { RankedProduct } from '../../types/ranking.types';
 import { ConversationState } from '../../types/recommendation.types';
 import { getGeminiClient } from './gemini.client';
+import { aiProviderOrchestrator } from './providers/ai-provider.orchestrator';
+import { aiConfig } from '../../config/ai.config';
 
 export interface ProductReasoning {
   productId: string;
@@ -73,12 +75,42 @@ export class SalesReasonerService {
       };
     }
 
-    // 1. Attempt generation with Gemini if available
-    const geminiClient = aiClientOverride !== undefined ? aiClientOverride : getGeminiClient();
-    if (geminiClient) {
+    // 1. Attempt generation with AI provider orchestrator (or aiClientOverride if provided)
+    if (aiClientOverride !== undefined) {
+      if (aiClientOverride) {
+        try {
+          const aiResult = await this.reasonWithGemini(
+            aiClientOverride,
+            intent,
+            conversationState,
+            rankedProducts,
+            shortlistedCandidates
+          );
+
+          if (aiResult && this.validateAiSalesReasoning(aiResult, shortlistedCandidates, rankedProducts, intent)) {
+            const reasoningMap = new Map<string, ProductReasoning>();
+            for (const item of aiResult.productReasonings) {
+              reasoningMap.set(item.productId, {
+                productId: item.productId,
+                whyRecommended: item.whyRecommended.trim(),
+                keyAdvantage: item.keyAdvantage.trim(),
+                tradeoff: item.tradeoff ? item.tradeoff.trim() : null,
+                fitRole: item.fitRole.trim(),
+              });
+            }
+
+            return {
+              salesOverview: aiResult.salesOverview.trim(),
+              productReasonings: reasoningMap,
+            };
+          }
+        } catch (error) {
+          console.warn('Sales Reasoner override call failed or timed out. Falling back to deterministic sales reasoning.', error);
+        }
+      }
+    } else {
       try {
-        const aiResult = await this.reasonWithGemini(
-          geminiClient,
+        const aiResult = await this.reasonWithAI(
           intent,
           conversationState,
           rankedProducts,
@@ -103,12 +135,108 @@ export class SalesReasonerService {
           };
         }
       } catch (error) {
-        console.warn('Sales Reasoner Gemini call failed or timed out. Falling back to deterministic sales reasoning.', error);
+        console.warn('Sales Reasoner AI call failed. Falling back to deterministic sales reasoning.', error);
       }
     }
 
     // 2. Fallback: High-quality, honest deterministic sales reasoning
     return this.deterministicSalesReasoning(intent, conversationState, rankedProducts, shortlistedCandidates);
+  }
+
+  /**
+   * Calls AI using the multi-provider orchestrator (Groq -> Cerebras -> Gemini)
+   * to generate structured sales explanations.
+   */
+  private async reasonWithAI(
+    intent: CustomerIntent,
+    conversationState: ConversationState | null,
+    rankedProducts: RankedProduct[],
+    candidates: CandidateProduct[]
+  ): Promise<{ salesOverview: string; productReasonings: any[] } | null> {
+    const sanitizedProducts = candidates.map((c, idx) => {
+      const ranked = rankedProducts.find((r) => r.productId === c.id);
+      return {
+        id: c.id,
+        rank: ranked?.rank || idx + 1,
+        name: c.name,
+        brand: c.brand,
+        category: c.category,
+        price: c.price,
+        stock: c.stock,
+        description: c.description,
+        features: c.features,
+        specifications: c.specifications,
+        tags: c.tags,
+      };
+    });
+
+    const prompt = `You are OptiCommerce's expert AI commerce sales assistant.
+Your job is to explain WHY these shortlisted products are recommended for the customer's goal and highlight honest trade-offs.
+
+CUSTOMER CONTEXT:
+- Category / Query: ${intent.category || 'general search'}
+- Goal / Use Case: ${conversationState?.goal || intent.useCase || 'not specified'}
+- Budget: ${intent.maxPrice ? 'Max ₹' + intent.maxPrice.toLocaleString('en-IN') : 'Flexible'}
+- Preferences: ${intent.preferences?.join(', ') || 'None specified'}
+- Exclusions: ${intent.exclusions?.join(', ') || conversationState?.exclusions?.join(', ') || 'None'}
+
+SHORTLISTED PRODUCTS (${sanitizedProducts.length} items):
+${JSON.stringify(sanitizedProducts, null, 2)}
+
+REQUIREMENTS:
+1. Explain WHY each product is recommended for the customer's goal.
+2. Identify a genuinely strong "keyAdvantage" grounded strictly in the product's actual specs/features/price.
+3. Identify an honest "tradeoff" (e.g. price difference compared to other picks, heavier weight, lacks a specific feature found in others, or near budget ceiling).
+4. Assign a concise "fitRole" (e.g. "Strongest Overall Fit", "Best Value", "Premium Pick", "Balanced Alternative").
+5. Provide a cohesive, friendly "salesOverview" (2-4 sentences) summarizing the shortlist for the customer, comparing the options directly.
+6. STRICT HONESTY: Do NOT invent specifications, benchmarks, or marketing fluff. Avoid words like "absolutely perfect", "unbeatable", or "miraculous". Use grounded phrases like "strongest fit", "better match", "best balance".
+7. Return strictly structured JSON matching this schema:
+{
+  "salesOverview": "A cohesive 2-4 sentence summary comparing the options",
+  "productReasonings": [
+    {
+      "productId": "string",
+      "whyRecommended": "string",
+      "keyAdvantage": "string",
+      "tradeoff": "string or null",
+      "fitRole": "string"
+    }
+  ]
+}`;
+
+    const result = await aiProviderOrchestrator.generateJson<{ salesOverview: string; productReasonings: any[] }>(prompt, {
+      operationName: 'sales reasoning',
+      systemInstruction:
+        'You are an authoritative commerce sales advisor. Generate structured sales reasoning grounded strictly in the provided product data. Never invent product features or numbers.',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          salesOverview: { type: Type.STRING },
+          productReasonings: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                productId: { type: Type.STRING },
+                whyRecommended: { type: Type.STRING },
+                keyAdvantage: { type: Type.STRING },
+                tradeoff: { type: Type.STRING },
+                fitRole: { type: Type.STRING },
+              },
+              required: ['productId', 'whyRecommended', 'keyAdvantage', 'fitRole'],
+            },
+          },
+        },
+        required: ['salesOverview', 'productReasonings'],
+      },
+      timeoutMs: GEMINI_REASONER_TIMEOUT_MS,
+    });
+
+    if (!result?.data || !result.data.salesOverview || !Array.isArray(result.data.productReasonings)) {
+      return null;
+    }
+
+    return result.data;
   }
 
   /**
@@ -161,7 +289,7 @@ REQUIREMENTS:
 6. STRICT HONESTY: Do NOT invent specifications, benchmarks, or marketing fluff. Avoid words like "absolutely perfect", "unbeatable", or "miraculous". Use grounded phrases like "strongest fit", "better match", "best balance".`;
 
     const reasoningPromise = ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: aiConfig.gemini.model || 'gemini-3.6-flash',
       contents: prompt,
       config: {
         systemInstruction:
