@@ -17,6 +17,7 @@ import commercialRoutes from './routes/commercial.routes';
 import { hashPassword } from './utils/password';
 import { errorHandler } from './middleware/error.middleware';
 import { testDatabaseConnection, prisma } from './db/prisma';
+import { config } from './config/env';
 
 export const app = express();
 
@@ -49,9 +50,12 @@ app.use(errorHandler);
 
 export async function ensureDefaultStore() {
   try {
-    let defaultStore = await prisma.store.findFirst({
+    let defaultStore = (await prisma.store.findFirst({
+      where: { slug: 'opticommerce-flagship-electronics' },
       include: { merchant: true },
-    });
+    })) || (await prisma.store.findFirst({
+      include: { merchant: true },
+    }));
     if (!defaultStore) {
       const defaultPasswordHash = await hashPassword('Merchant@2026');
       const defaultMerchant = await prisma.merchant.create({
@@ -77,15 +81,19 @@ export async function ensureDefaultStore() {
     }
 
     if (defaultStore) {
-      const productCount = await prisma.product.count({
-        where: { storeId: defaultStore.id },
-      });
-      if (productCount <= 1) {
-        // If 0 or 1 product (from test runs), seed the standard store catalog
-        await prisma.product.createMany({
-          data: INITIAL_100_PRODUCTS.map((p) => ({ ...p, storeId: defaultStore.id })),
+      if (config.databaseUrl) {
+        console.log('[Database] Production catalog seeding skipped; use npm run seed:demo for explicit catalog provisioning.');
+      } else {
+        const productCount = await prisma.product.count({
+          where: { storeId: defaultStore.id },
         });
-        console.log(`[Database] Seeded default catalog products for store: ${defaultStore.name}`);
+        if (productCount <= 1) {
+          // If 0 or 1 product (from test runs), seed the standard store catalog
+          await prisma.product.createMany({
+            data: INITIAL_100_PRODUCTS.map((p) => ({ ...p, storeId: defaultStore.id })),
+          });
+          console.log(`[Database] Seeded default catalog products for store: ${defaultStore.name}`);
+        }
       }
     }
   } catch (error) {

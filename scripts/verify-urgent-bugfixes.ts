@@ -153,7 +153,7 @@ async function runRegressionSuite() {
       `Step 3: Database Product A price remains strictly unchanged ($${dbProductAAfterOffer?.price} === $${originalPriceA})`
     );
     assert(
-      productA.price === originalPriceA,
+      Number(productA.price) === originalPriceA,
       'Step 3b: In-memory catalog product object reference was not mutated'
     );
 
