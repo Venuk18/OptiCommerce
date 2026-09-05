@@ -1,11 +1,10 @@
-# OptiCommerce
+# 🚀 OptiCommerce
 
-> **AI-native commerce and revenue engine that turns customer intent into better purchasing decisions and merchant revenue.**
+> AI-Native Commerce & Revenue Engine for Merchants
 
-Built for the **Razorpay Buildathon**, OptiCommerce bridges the gap between conversational shopping and e-commerce profitability. It replaces rigid keyword filters and generic chatbot wrappers with a deterministic, margin-aware AI recommendation pipeline, paired with real-time merchant revenue analytics and native **Razorpay checkout** integration.
+🌐 **Live Demo:** https://opticommerce.onrender.com
 
----
-
+📦 **GitHub:** https://github.com/Venuk18/OptiCommerce
 ## Table of Contents
 
 - [1. Overview](#1-overview)
