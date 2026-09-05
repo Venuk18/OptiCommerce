@@ -383,20 +383,49 @@ export class OrderService {
   }
 
   /**
-   * GET /api/orders - List orders for the active session and store
+   * GET /api/orders - List orders for the active session or authenticated customer, scoped to store
    */
-  async listOrders(sessionId: string, storeId: string): Promise<OrderResponseData[]> {
-    if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
-      throw new AppError('sessionId is required', 400);
-    }
+  async listOrders(
+    sessionId: string,
+    storeId: string,
+    customerId?: string | null
+  ): Promise<OrderResponseData[]> {
     if (!storeId || typeof storeId !== 'string' || !storeId.trim()) {
       throw new AppError('storeId is required', 400);
     }
+    const cleanStoreId = storeId.trim();
+
+    // Authenticated customer request: query by customerId + storeId
+    if (customerId && typeof customerId === 'string' && customerId.trim()) {
+      const cleanCustomerId = customerId.trim();
+      const orders = await prisma.order.findMany({
+        where: {
+          customerId: cleanCustomerId,
+          storeId: cleanStoreId,
+        },
+        include: {
+          items: {
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      return orders.map((o) => this.formatOrder(o));
+    }
+
+    // Guest request: query by sessionId + storeId
+    if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+      throw new AppError('sessionId is required', 400);
+    }
+    const cleanSessionId = sessionId.trim();
 
     const orders = await prisma.order.findMany({
       where: {
-        sessionId: sessionId.trim(),
-        storeId: storeId.trim(),
+        sessionId: cleanSessionId,
+        storeId: cleanStoreId,
       },
       include: {
         items: {

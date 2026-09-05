@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Zap } from 'lucide-react';
 import { CommerceProvider, useCommerce } from './context/CommerceContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CustomerAuthProvider } from './context/CustomerAuthContext';
@@ -135,14 +136,39 @@ function MainLayout() {
       ) : (
         /* CUSTOMER STOREFRONT EXPERIENCE (/, /store/:slug, /store/:slug/*) */
         <div className="min-h-screen flex flex-col bg-white">
-          <CustomerHeader 
-            onOpenCart={() => setIsCartOpen(true)} 
-            onOpenLogin={() => {
-              const targetSlug = store?.slug || activeSlug || 'opticommerce-flagship-electronics';
-              navigate(`/store/${targetSlug}/login`);
-            }}
-            onNavigate={navigate}
-          />
+          {isCustomerLogin ? (
+            <header className="bg-white/95 backdrop-blur-md border-b border-slate-100 sticky top-0 z-40">
+              <div className="max-w-7xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetSlug = store?.slug || activeSlug || 'opticommerce-flagship-electronics';
+                    navigate(`/store/${targetSlug}`);
+                  }}
+                  className="flex items-center gap-2.5 text-left cursor-pointer group transition-transform hover:opacity-95"
+                  title="Return to Storefront"
+                >
+                  <div className="w-9 h-9 bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-blue-500/20 transition-transform group-hover:scale-105">
+                    <Zap className="w-5 h-5 fill-white" />
+                  </div>
+                  <div>
+                    <span className="font-extrabold text-slate-900 text-lg tracking-tight bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-700 bg-clip-text text-transparent">
+                      OptiCommerce
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </header>
+          ) : (
+            <CustomerHeader 
+              onOpenCart={() => setIsCartOpen(true)} 
+              onOpenLogin={() => {
+                const targetSlug = store?.slug || activeSlug || 'opticommerce-flagship-electronics';
+                navigate(`/store/${targetSlug}/login`);
+              }}
+              onNavigate={navigate}
+            />
+          )}
 
           <main className="flex-1">
             {isCustomerLogin ? (

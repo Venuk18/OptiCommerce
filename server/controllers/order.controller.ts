@@ -57,8 +57,9 @@ export class OrderController {
     try {
       const sessionId = (req.query.sessionId as string) || (req.headers['x-session-id'] as string) || '';
       const storeId = (req.query.storeId as string) || '';
+      const customerId = req.customer?.customerId || null;
 
-      const orders = await orderService.listOrders(sessionId, storeId);
+      const orders = await orderService.listOrders(sessionId, storeId, customerId);
 
       res.status(200).json({
         success: true,

@@ -1023,16 +1023,89 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const loadOrders = useCallback(async (): Promise<ServerOrderData[]> => {
-    if (!store?.id) return [];
+    const targetStoreId = customerStore?.id || store?.id;
+    if (!targetStoreId) return [];
     try {
-      const list = await orderService.listOrders(store.id);
+      const list = await orderService.listOrders(targetStoreId);
       setServerOrders(list);
+
+      // Map server orders to customer-facing CustomerOrder[]
+      const mappedOrders: CustomerOrder[] = list.map((so) => {
+        const items: CartItem[] = (so.items || []).map((serverItem) => {
+          const matched = products.find((p) => p.id === serverItem.productId);
+          const product: Product = matched ? { ...matched } : {
+            id: serverItem.productId,
+            name: serverItem.productName,
+            basePrice: serverItem.unitPrice,
+            currentPrice: serverItem.unitPrice,
+            costPrice: 0,
+            stock: 100,
+            category: 'Electronics',
+            image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80',
+            aiDiscountEligible: false,
+            activeDiscountPercent: 0,
+            features: [],
+            rating: 4.8,
+            reviewsCount: 120,
+            salesVelocity: 1.0,
+            inventoryRisk: 'LOW',
+            description: serverItem.productName,
+          };
+          return {
+            product,
+            quantity: serverItem.quantity,
+            appliedDiscountPercent: serverItem.discountPercent || 0,
+            discountReason: serverItem.discountPercent ? `${serverItem.discountPercent}% Savings Applied` : undefined,
+          };
+        });
+
+        const statusMap: Record<string, 'Processing' | 'Confirmed' | 'Shipped' | 'Delivered'> = {
+          CONFIRMED: 'Confirmed',
+          PENDING: 'Processing',
+          PROCESSING: 'Processing',
+          SHIPPED: 'Shipped',
+          DELIVERED: 'Delivered',
+        };
+
+        return {
+          id: so.orderId,
+          date: so.createdAt ? new Date(so.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          items,
+          subtotal: so.subtotal,
+          discountAmount: so.discount,
+          total: so.total,
+          status: statusMap[so.status] || 'Processing',
+          customerName: authCustomer?.name || 'Customer',
+          customerEmail: authCustomer?.email || 'customer@example.com',
+          shippingAddress: 'Flat 402, Green Glen Heights, Bellandur, Bangalore 560103',
+          aiSavings: so.discount,
+        };
+      });
+
+      // Avoid duplicates: reconcile by order ID with server orders authoritative
+      setOrders((prev) => {
+        const serverIds = new Set(mappedOrders.map((o) => o.id));
+        const localOnly = prev.filter((o) => !serverIds.has(o.id));
+        return [...mappedOrders, ...localOnly];
+      });
+
       return list;
     } catch (err) {
       console.warn('[Order Service] List orders notice:', err);
       return [];
     }
-  }, [store?.id]);
+  }, [customerStore?.id, store?.id, products, authCustomer]);
+
+  // Hydrate persisted customer orders after auth restoration or customer change
+  useEffect(() => {
+    const targetStoreId = customerStore?.id || store?.id;
+    if (targetStoreId && !isCustomerAuthLoading && isCustomerAuthenticated && authCustomer?.id) {
+      loadOrders();
+    } else if (!isCustomerAuthLoading && !isCustomerAuthenticated) {
+      setOrders([]);
+      setServerOrders([]);
+    }
+  }, [customerStore?.id, store?.id, isCustomerAuthLoading, isCustomerAuthenticated, authCustomer?.id, loadOrders]);
 
   const checkoutOrder = async (customerDetails?: { name?: string; email?: string; address?: string }): Promise<ServerOrderData> => {
     if (!store?.id) {
