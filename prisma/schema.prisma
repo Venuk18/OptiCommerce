@@ -81,6 +81,25 @@ model Store {
   events      CommerceEvent[]
   carts       Cart[]
   orders      Order[]
+  customers   Customer[]
+}
+
+model Customer {
+  id           String   @id @default(uuid())
+  storeId      String
+  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name         String?
+  email        String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  carts        Cart[]
+  orders       Order[]
+
+  @@unique([storeId, email])
+  @@index([storeId])
+  @@index([email])
 }
 
 model Product {
@@ -130,17 +149,20 @@ model CommerceEvent {
 }
 
 model Cart {
-  id        String     @id @default(uuid())
-  sessionId String
-  storeId   String
-  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  items     CartItem[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id         String     @id @default(uuid())
+  sessionId  String
+  storeId    String
+  store      Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items      CartItem[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   @@unique([sessionId, storeId])
   @@index([sessionId])
   @@index([storeId])
+  @@index([customerId])
 }
 
 model CartItem {
@@ -163,6 +185,8 @@ model Order {
   sessionId         String
   storeId           String
   store             Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId        String?
+  customer          Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
   status            OrderStatus   @default(PENDING)
   paymentStatus     PaymentStatus @default(CREATED)
   razorpayOrderId   String?       @unique
@@ -178,6 +202,7 @@ model Order {
 
   @@index([sessionId])
   @@index([storeId])
+  @@index([customerId])
   @@index([status])
   @@index([paymentStatus])
   @@index([createdAt])

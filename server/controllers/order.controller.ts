@@ -11,9 +11,12 @@ export class OrderController {
       const sessionId = req.body?.sessionId || (req.headers['x-session-id'] as string) || '';
       const storeId = req.body?.storeId || '';
 
+      const customerId = req.customer?.customerId || req.body?.customerId || null;
+
       const order = await orderService.checkout({
         sessionId,
         storeId,
+        customerId,
       });
 
       res.status(201).json({

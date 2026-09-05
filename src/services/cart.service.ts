@@ -120,4 +120,20 @@ export const cartService = {
     );
     return response.cart;
   },
+
+  /**
+   * POST /api/cart/merge - Merge current guest session cart into authenticated customer cart.
+   * Customer identity is extracted strictly from customer JWT Bearer token on backend.
+   */
+  async mergeCart(storeId: string): Promise<ServerCartData> {
+    const sessionId = getAnonymousSessionId();
+    const response = await apiFetch<{ cart: ServerCartData }>('/api/cart/merge', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId,
+        storeId,
+      }),
+    });
+    return response.cart;
+  },
 };

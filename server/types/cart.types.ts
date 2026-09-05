@@ -3,12 +3,20 @@ export interface AddCartItemInput {
   storeId: string;
   productId: string;
   quantity?: number;
+  customerId?: string | null;
 }
 
 export interface UpdateCartItemInput {
   sessionId: string;
   storeId: string;
   quantity: number;
+  customerId?: string | null;
+}
+
+export interface MergeCartInput {
+  customerId: string;
+  storeId: string;
+  sessionId: string;
 }
 
 export interface CartItemResponse {
@@ -29,6 +37,7 @@ export interface CartResponseData {
   id: string | null;
   sessionId: string;
   storeId: string;
+  customerId?: string | null;
   items: CartItemResponse[];
   subtotal: number;
   discount: number;

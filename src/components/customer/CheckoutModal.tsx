@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCommerce } from '../../context/CommerceContext';
+import { useCustomerAuth } from '../../context/CustomerAuthContext';
 import { 
   X, 
   CreditCard, 
@@ -14,9 +15,10 @@ import {
 interface CheckoutModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenLogin?: () => void;
 }
 
-export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
+export function CheckoutModal({ isOpen, onClose, onOpenLogin }: CheckoutModalProps) {
   const { 
     cart, 
     cartSubtotal, 
@@ -28,6 +30,9 @@ export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
     checkoutError 
   } = useCommerce();
 
+  const { customer, isAuthenticated } = useCustomerAuth();
+  const [guestChosen, setGuestChosen] = useState(false);
+
   const [form, setForm] = useState({
     name: 'Rahul Verma',
     email: 'rahul.verma@example.com',
@@ -35,6 +40,23 @@ export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
   });
 
   const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setGuestChosen(false);
+      setLocalError(null);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (customer) {
+      setForm(prev => ({
+        ...prev,
+        name: customer.name || prev.name,
+        email: customer.email || prev.email,
+      }));
+    }
+  }, [customer]);
 
   if (!isOpen) return null;
 
@@ -62,7 +84,71 @@ export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6 pt-4 text-xs">
+        {!isAuthenticated && !guestChosen ? (
+          <div className="py-8 text-center space-y-6">
+            <div className="max-w-md mx-auto space-y-2">
+              <h3 className="text-base font-bold text-slate-900">How would you like to check out?</h3>
+              <p className="text-xs text-slate-500">
+                You can complete your purchase quickly as a guest, or sign in to link this order to your account.
+              </p>
+            </div>
+
+            <div className="max-w-xs mx-auto space-y-3">
+              <button
+                type="button"
+                id="continue-as-guest-btn"
+                onClick={() => setGuestChosen(true)}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs transition-colors shadow-sm cursor-pointer"
+              >
+                Continue as Guest
+              </button>
+
+              <button
+                type="button"
+                id="checkout-signin-btn"
+                onClick={() => {
+                  onClose();
+                  onOpenLogin?.();
+                }}
+                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-xs transition-colors border border-slate-200 cursor-pointer"
+              >
+                Already have an account? Sign In
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-6 pt-4 text-xs">
+            {/* Authenticated Customer Banner or Guest Indicator */}
+            {isAuthenticated && customer ? (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-blue-600" />
+                  <span className="text-slate-700 font-medium">
+                    Signed in as <strong className="text-slate-900">{customer.email}</strong>
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                  Account Linked
+                </span>
+              </div>
+            ) : (
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-slate-600">
+                <span>Checking out as <strong>Guest</strong></span>
+                {onOpenLogin && (
+                  <button
+                    type="button"
+                    id="checkout-signin-btn"
+                    onClick={() => {
+                      onClose();
+                      onOpenLogin();
+                    }}
+                    className="text-blue-600 hover:underline font-bold text-[11px] cursor-pointer"
+                  >
+                    Already have an account? Sign In
+                  </button>
+                )}
+              </div>
+            )}
           {/* Shipping Address */}
           <div className="space-y-3">
             <h3 className="font-bold text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
@@ -172,6 +258,7 @@ export function CheckoutModal({ isOpen, onClose }: CheckoutModalProps) {
             )}
           </button>
         </form>
+        )}
       </div>
     </div>
   );

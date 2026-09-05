@@ -22,6 +22,20 @@ export interface InMemoryStore {
   updatedAt: Date;
   merchant?: InMemoryMerchant | null;
   products?: InMemoryProduct[];
+  customers?: InMemoryCustomer[];
+}
+
+export interface InMemoryCustomer {
+  id: string;
+  storeId: string;
+  name: string | null;
+  email: string;
+  passwordHash: string;
+  createdAt: Date;
+  updatedAt: Date;
+  store?: InMemoryStore | null;
+  carts?: InMemoryCart[];
+  orders?: InMemoryOrder[];
 }
 
 export interface InMemoryProduct {
@@ -58,9 +72,11 @@ export interface InMemoryCart {
   id: string;
   sessionId: string;
   storeId: string;
+  customerId?: string | null;
   createdAt: Date;
   updatedAt: Date;
   items?: InMemoryCartItem[];
+  customer?: InMemoryCustomer | null;
 }
 
 export interface InMemoryOrderItem {
@@ -83,6 +99,7 @@ export interface InMemoryOrder {
   id: string;
   sessionId: string;
   storeId: string;
+  customerId?: string | null;
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   razorpayOrderId: string | null;
@@ -95,6 +112,7 @@ export interface InMemoryOrder {
   updatedAt: Date;
   items?: InMemoryOrderItem[];
   store?: InMemoryStore | null;
+  customer?: InMemoryCustomer | null;
 }
 
 export interface InMemoryCommerceEvent {
@@ -115,6 +133,7 @@ class InMemoryDatabase {
   cartItems = new Map<string, InMemoryCartItem>();
   orders = new Map<string, InMemoryOrder>();
   orderItems = new Map<string, InMemoryOrderItem>();
+  customers = new Map<string, InMemoryCustomer>();
   events: InMemoryCommerceEvent[] = [];
 
   constructor() {
@@ -473,6 +492,118 @@ export function createInMemoryPrismaProxy() {
       count: async () => inMemoryDb.merchants.size,
     },
 
+    customer: {
+      findUnique: async (args: {
+        where: { id?: string; storeId_email?: { storeId: string; email: string } };
+        include?: any;
+      }) => {
+        let target: InMemoryCustomer | null = null;
+        if (args.where.id) {
+          target = inMemoryDb.customers.get(args.where.id) || null;
+        } else if (args.where.storeId_email) {
+          const { storeId, email } = args.where.storeId_email;
+          target =
+            Array.from(inMemoryDb.customers.values()).find(
+              (c) => c.storeId === storeId && c.email.toLowerCase() === email.toLowerCase()
+            ) || null;
+        }
+        if (!target) return null;
+        const result: any = { ...target };
+        if (args.include?.store) {
+          result.store = inMemoryDb.stores.get(target.storeId) || null;
+        }
+        if (args.include?.carts) {
+          result.carts = Array.from(inMemoryDb.carts.values()).filter((c) => c.customerId === target!.id);
+        }
+        if (args.include?.orders) {
+          result.orders = Array.from(inMemoryDb.orders.values()).filter((o) => o.customerId === target!.id);
+        }
+        return result;
+      },
+      findFirst: async (args?: { where?: any; include?: any }) => {
+        for (const c of inMemoryDb.customers.values()) {
+          if (matchesWhere(c, args?.where)) {
+            const result: any = { ...c };
+            if (args?.include?.store) {
+              result.store = inMemoryDb.stores.get(c.storeId) || null;
+            }
+            if (args?.include?.carts) {
+              result.carts = Array.from(inMemoryDb.carts.values()).filter((cart) => cart.customerId === c.id);
+            }
+            if (args?.include?.orders) {
+              result.orders = Array.from(inMemoryDb.orders.values()).filter((o) => o.customerId === c.id);
+            }
+            return result;
+          }
+        }
+        return null;
+      },
+      findMany: async (args?: { where?: any; include?: any }) => {
+        let list = Array.from(inMemoryDb.customers.values());
+        if (args?.where) {
+          list = list.filter((c) => matchesWhere(c, args.where));
+        }
+        return list.map((c) => {
+          const result: any = { ...c };
+          if (args?.include?.store) {
+            result.store = inMemoryDb.stores.get(c.storeId) || null;
+          }
+          return result;
+        });
+      },
+      create: async (args: { data: any; include?: any }) => {
+        // Enforce @@unique([storeId, email])
+        for (const existing of inMemoryDb.customers.values()) {
+          if (
+            existing.storeId === args.data.storeId &&
+            existing.email.toLowerCase() === (args.data.email || '').toLowerCase()
+          ) {
+            const err: any = new Error('Unique constraint failed on the fields: (`storeId`,`email`)');
+            err.code = 'P2002';
+            err.meta = { target: ['storeId', 'email'] };
+            throw err;
+          }
+        }
+
+        const id = args.data.id || `customer-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const customer: InMemoryCustomer = {
+          id,
+          storeId: args.data.storeId,
+          name: args.data.name || null,
+          email: args.data.email,
+          passwordHash: args.data.passwordHash,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        inMemoryDb.customers.set(id, customer);
+        const result: any = { ...customer };
+        if (args.include?.store) {
+          result.store = inMemoryDb.stores.get(customer.storeId) || null;
+        }
+        return result;
+      },
+      update: async (args: { where: { id: string }; data: any }) => {
+        const c = inMemoryDb.customers.get(args.where.id);
+        if (!c) throw new Error('Customer not found');
+        const updated = { ...c, ...args.data, updatedAt: new Date() };
+        inMemoryDb.customers.set(args.where.id, updated);
+        return { ...updated };
+      },
+      delete: async (args: { where: { id: string } }) => {
+        const c = inMemoryDb.customers.get(args.where.id);
+        if (c) inMemoryDb.customers.delete(args.where.id);
+        return c;
+      },
+      count: async (args?: { where?: any }) => {
+        if (!args?.where) return inMemoryDb.customers.size;
+        let count = 0;
+        for (const c of inMemoryDb.customers.values()) {
+          if (matchesWhere(c, args.where)) count++;
+        }
+        return count;
+      },
+    },
+
     store: {
       findUnique: async (args: { where: { id?: string; slug?: string; merchantId?: string }; include?: any; select?: any }) => {
         for (const s of inMemoryDb.stores.values()) {
@@ -686,22 +817,28 @@ export function createInMemoryPrismaProxy() {
         }
         return result;
       },
-      findFirst: async (args: { where: { sessionId: string; storeId: string }; include?: any }) => {
-        const target =
-          Array.from(inMemoryDb.carts.values()).find(
-            (c) => c.sessionId === args.where.sessionId && c.storeId === args.where.storeId
-          ) || null;
+      findFirst: async (args?: { where?: any; include?: any }) => {
+        let target: InMemoryCart | null = null;
+        for (const c of inMemoryDb.carts.values()) {
+          if (matchesWhere(c, args?.where)) {
+            target = c;
+            break;
+          }
+        }
         if (!target) return null;
         const result = { ...target };
-        if (args.include?.items) {
-          const items = Array.from(inMemoryDb.cartItems.values()).filter((item) => item.cartId === target.id);
+        if (args?.include?.items) {
+          const items = Array.from(inMemoryDb.cartItems.values()).filter((item) => item.cartId === target!.id);
           result.items = items.map((item) => {
             const itemCopy = { ...item };
-            if (args.include?.items?.include?.product) {
+            if (args?.include?.items?.include?.product) {
               itemCopy.product = inMemoryDb.products.get(item.productId);
             }
             return itemCopy;
           });
+        }
+        if (args?.include?.customer) {
+          result.customer = target.customerId ? inMemoryDb.customers.get(target.customerId) || null : null;
         }
         return result;
       },
@@ -711,6 +848,7 @@ export function createInMemoryPrismaProxy() {
           id,
           sessionId: args.data.sessionId,
           storeId: args.data.storeId,
+          customerId: args.data.customerId || null,
           createdAt: new Date(),
           updatedAt: new Date(),
           items: [],
@@ -743,6 +881,7 @@ export function createInMemoryPrismaProxy() {
             id,
             sessionId: args.create.sessionId,
             storeId: args.create.storeId,
+            customerId: args.create.customerId || null,
             createdAt: new Date(),
             updatedAt: new Date(),
             items: [],
@@ -762,6 +901,13 @@ export function createInMemoryPrismaProxy() {
         const c = inMemoryDb.carts.get(args.where.id);
         if (c) inMemoryDb.carts.delete(args.where.id);
         return c;
+      },
+      findMany: async (args?: { where?: any; include?: any }) => {
+        let list = Array.from(inMemoryDb.carts.values());
+        if (args?.where) {
+          list = list.filter((c) => matchesWhere(c, args.where));
+        }
+        return list.map((c) => ({ ...c }));
       },
     },
 
@@ -930,6 +1076,7 @@ export function createInMemoryPrismaProxy() {
           id,
           sessionId: args.data.sessionId,
           storeId: args.data.storeId,
+          customerId: args.data.customerId || null,
           status: args.data.status || ('PENDING' as OrderStatus),
           paymentStatus: args.data.paymentStatus || ('CREATED' as PaymentStatus),
           razorpayOrderId: args.data.razorpayOrderId || null,

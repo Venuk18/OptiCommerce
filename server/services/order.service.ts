@@ -33,6 +33,9 @@ export class OrderService {
 
     return {
       orderId: order.id,
+      sessionId: order.sessionId,
+      storeId: order.storeId,
+      customerId: order.customerId || null,
       status: order.status as OrderStatus,
       paymentStatus: (order.paymentStatus || 'CREATED') as any,
       razorpayOrderId: order.razorpayOrderId || null,
@@ -56,7 +59,7 @@ export class OrderService {
       throw new AppError('Request body is required', 400);
     }
 
-    const { sessionId, storeId } = input;
+    const { sessionId, storeId, customerId } = input;
 
     // 1. Validate sessionId
     if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
@@ -286,10 +289,12 @@ export class OrderService {
         }
 
         // Step B: Create Order & OrderItem records
+        const resolvedCustomerId = customerId || cart.customerId || null;
         const newOrder = await tx.order.create({
           data: {
             sessionId: cleanSessionId,
             storeId: cleanStoreId,
+            customerId: resolvedCustomerId,
             status: 'PENDING',
             subtotal,
             discount,

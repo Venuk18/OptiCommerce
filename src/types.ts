@@ -845,7 +845,16 @@ export interface MerchantOrderDetailResponse {
   data: MerchantOrderData;
 }
 
+export interface SafeCustomer {
+  id: string;
+  storeId: string;
+  name: string | null;
+  email: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
-
-
-
+export interface CustomerAuthResult {
+  customer: SafeCustomer;
+  token: string;
+}

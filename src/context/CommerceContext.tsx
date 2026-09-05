@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
+import { useCustomerAuth } from './CustomerAuthContext';
 import { 
   Product, 
   AIConstraints, 
@@ -116,6 +117,7 @@ interface CommerceContextType {
   isCartLoading: boolean;
   cartError: string | null;
   refreshCart: (targetStoreId?: string) => Promise<ServerCartData | null>;
+  mergeCustomerCart: (targetStoreId?: string) => Promise<ServerCartData | null>;
   addToCart: (
     product: Product,
     quantity?: number,
@@ -161,6 +163,7 @@ const CommerceContext = createContext<CommerceContextType | undefined>(undefined
 
 export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const { merchant: authMerchant, isAuthenticated } = useAuth();
+  const { customer: authCustomer, isAuthenticated: isCustomerAuthenticated, isLoading: isCustomerAuthLoading } = useCustomerAuth();
   const [merchantTab, setMerchantTab] = useState<MerchantTab>('dashboard');
   const [customerTab, setCustomerTab] = useState<CustomerTab>('home');
   
@@ -687,29 +690,100 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const [isCartLoading, setIsCartLoading] = useState<boolean>(false);
   const [cartError, setCartError] = useState<string | null>(null);
 
-  const refreshCart = useCallback(async (targetStoreId?: string): Promise<ServerCartData | null> => {
-    const sId = targetStoreId || customerStore?.id || store?.id;
-    if (!sId) return null;
-    setIsCartLoading(true);
-    setCartError(null);
-    try {
-      const data = await cartService.getCart(sId);
-      setServerCart(data);
-      return data;
-    } catch (err: any) {
-      console.warn('[CommerceContext] Sync cart notice:', err?.message || err);
-      setCartError(err?.message || 'Failed to sync cart');
-      return null;
-    } finally {
-      setIsCartLoading(false);
-    }
-  }, [customerStore?.id, store?.id]);
+  const syncCartWithServerData = useCallback(
+    (serverData: ServerCartData | null, catalogProducts: Product[] = products) => {
+      setServerCart(serverData);
+      if (!serverData || !Array.isArray(serverData.items)) {
+        setCart([]);
+        return;
+      }
+      const syncedItems: CartItem[] = serverData.items
+        .map((item) => {
+          let prod = catalogProducts.find((p) => p.id === item.productId);
+          if (!prod) {
+            prod = {
+              id: item.productId,
+              name: item.name,
+              category: item.category || 'General',
+              basePrice: item.unitPrice,
+              costPrice: 0,
+              marginPercent: 0,
+              stock: item.availableStock,
+              rating: 4.5,
+              ratingCount: 10,
+              image:
+                item.image ||
+                'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80',
+              description: item.name,
+              tags: [item.category || 'Catalog'],
+              aiDiscountEligible: true,
+              activeDiscountPercent: 0,
+              isLive: true,
+              status: (item.status as any) || 'PUBLISHED',
+              storeId: serverData.storeId,
+            };
+          }
+          return {
+            product: prod,
+            quantity: item.quantity,
+            appliedDiscountPercent: 0,
+          };
+        })
+        .filter((ci): ci is CartItem => ci !== null);
 
+      setCart(syncedItems);
+    },
+    [products]
+  );
+
+  const refreshCart = useCallback(
+    async (targetStoreId?: string): Promise<ServerCartData | null> => {
+      const sId = targetStoreId || customerStore?.id || store?.id;
+      if (!sId) return null;
+      setIsCartLoading(true);
+      setCartError(null);
+      try {
+        const data = await cartService.getCart(sId);
+        syncCartWithServerData(data);
+        return data;
+      } catch (err: any) {
+        console.warn('[CommerceContext] Sync cart notice:', err?.message || err);
+        setCartError(err?.message || 'Failed to sync cart');
+        return null;
+      } finally {
+        setIsCartLoading(false);
+      }
+    },
+    [customerStore?.id, store?.id, syncCartWithServerData]
+  );
+
+  const mergeCustomerCart = useCallback(
+    async (targetStoreId?: string): Promise<ServerCartData | null> => {
+      const sId = targetStoreId || customerStore?.id || store?.id;
+      if (!sId) return null;
+      setIsCartLoading(true);
+      setCartError(null);
+      try {
+        const mergedData = await cartService.mergeCart(sId);
+        syncCartWithServerData(mergedData);
+        return mergedData;
+      } catch (err: any) {
+        console.warn('[CommerceContext] Cart merge error:', err?.message || err);
+        setCartError(err?.message || 'Failed to merge cart');
+        throw err;
+      } finally {
+        setIsCartLoading(false);
+      }
+    },
+    [customerStore?.id, store?.id, syncCartWithServerData]
+  );
+
+  // Synchronize cart when customer auth state finishes loading or transitions (login / logout)
   useEffect(() => {
-    if (customerStore?.id) {
+    if (customerStore?.id && !isCustomerAuthLoading) {
       refreshCart(customerStore.id);
     }
-  }, [customerStore?.id, refreshCart]);
+  }, [customerStore?.id, isCustomerAuthLoading, isCustomerAuthenticated, refreshCart]);
 
   // Orders
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -850,18 +924,15 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       
-      // Calculate discount: explicit offer override takes precedence
+      // Calculate discount: explicit offer override ONLY.
+      // Discounts must ONLY be applied when an eligible product has an active offer explicitly accepted by the user (offerOverride).
+      // AI savings/nudge must never be applied automatically to general products without an explicit offer.
       let discount = 0;
       let reason: string | undefined = undefined;
 
-      if (offerOverride !== undefined) {
+      if (offerOverride && typeof offerOverride.discountPercent === 'number' && offerOverride.discountPercent > 0) {
         discount = Math.max(0, offerOverride.discountPercent);
-        reason = offerOverride.discountReason || (discount > 0 ? `${discount}% Exclusive Offer Applied` : undefined);
-      } else if (constraints.allowPersonalizedDiscounts && product.aiDiscountEligible) {
-        // Cap by merchant maximum discount limit
-        const maxDiscount = constraints.maxDiscountLimit;
-        discount = Math.min(product.activeDiscountPercent || 5, maxDiscount);
-        reason = `${discount}% AI Revenue Optimizer Nudge`;
+        reason = offerOverride.discountReason || `${discount}% Exclusive Offer Applied`;
       }
 
       if (existing) {
@@ -876,7 +947,8 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
             : item
         );
       }
-      return [...prev, { product, quantity, appliedDiscountPercent: discount, discountReason: reason }];
+      // Never mutate shared product/catalog objects: clone product object
+      return [...prev, { product: { ...product }, quantity, appliedDiscountPercent: discount, discountReason: reason }];
     });
   };
 
@@ -1195,6 +1267,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         isCartLoading,
         cartError,
         refreshCart,
+        mergeCustomerCart,
         addToCart,
         removeFromCart,
         updateCartQuantity,

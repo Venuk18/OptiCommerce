@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CommerceProvider, useCommerce } from './context/CommerceContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { CustomerAuthProvider } from './context/CustomerAuthContext';
 import { MerchantSidebar } from './components/merchant/MerchantSidebar';
 import { MerchantHeader } from './components/merchant/MerchantHeader';
 import { MerchantAuth } from './components/merchant/MerchantAuth';
@@ -140,6 +141,7 @@ function MainLayout() {
               const targetSlug = store?.slug || activeSlug || 'opticommerce-flagship-electronics';
               navigate(`/store/${targetSlug}/login`);
             }}
+            onNavigate={navigate}
           />
 
           <main className="flex-1">
@@ -205,6 +207,11 @@ function MainLayout() {
           <CheckoutModal
             isOpen={isCheckoutOpen}
             onClose={() => setIsCheckoutOpen(false)}
+            onOpenLogin={() => {
+              const targetSlug = store?.slug || activeSlug || 'opticommerce-flagship-electronics';
+              setIsCheckoutOpen(false);
+              navigate(`/store/${targetSlug}/login`);
+            }}
           />
 
           {/* Customer Recovery Modal (Triggerable on exit-intent or manual simulation) */}
@@ -226,9 +233,11 @@ function MainLayout() {
 export default function App() {
   return (
     <AuthProvider>
-      <CommerceProvider>
-        <MainLayout />
-      </CommerceProvider>
+      <CustomerAuthProvider>
+        <CommerceProvider>
+          <MainLayout />
+        </CommerceProvider>
+      </CustomerAuthProvider>
     </AuthProvider>
   );
 }

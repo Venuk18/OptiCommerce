@@ -13,6 +13,7 @@ export class ApiError extends Error {
 }
 
 export const MERCHANT_TOKEN_STORAGE_KEY = 'opticommerce_merchant_token';
+export const CUSTOMER_TOKEN_STORAGE_KEY = 'opticommerce_customer_token';
 
 export const getStoredMerchantToken = (): string | null => {
   try {
@@ -22,9 +23,35 @@ export const getStoredMerchantToken = (): string | null => {
   }
 };
 
+export const getStoredCustomerToken = (): string | null => {
+  try {
+    return localStorage.getItem(CUSTOMER_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+export const setStoredCustomerToken = (token: string): void => {
+  try {
+    localStorage.setItem(CUSTOMER_TOKEN_STORAGE_KEY, token);
+  } catch (err) {
+    console.warn('Failed to store customer token in localStorage', err);
+  }
+};
+
+export const removeStoredCustomerToken = (): void => {
+  try {
+    localStorage.removeItem(CUSTOMER_TOKEN_STORAGE_KEY);
+  } catch (err) {
+    console.warn('Failed to remove customer token from localStorage', err);
+  }
+};
+
 // Get the base API URL from environment variable or default to relative path
 const getBaseUrl = (): string => {
-  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  const envUrl =
+    (typeof process !== 'undefined' && process.env?.VITE_API_BASE_URL) ||
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL);
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
     // Remove trailing slash if present
     return envUrl.trim().replace(/\/+$/, '');
@@ -45,19 +72,31 @@ export async function apiFetch<T>(
     ...(options.headers as Record<string, string> || {}),
   };
 
-  // Attach merchant Bearer token if present for merchant/auth endpoints (and not already set)
+  // Attach customer Bearer token or merchant Bearer token based on route isolation (if not already set)
   if (!headers['Authorization'] && !headers['authorization']) {
-    const token = getStoredMerchantToken();
-    if (token) {
+    const isCustomerRoute =
+      normalizedEndpoint.startsWith('/api/customer-auth/me') ||
+      normalizedEndpoint.startsWith('/api/cart') ||
+      normalizedEndpoint.startsWith('/api/orders');
+
+    if (isCustomerRoute) {
+      const customerToken = getStoredCustomerToken();
+      if (customerToken) {
+        headers['Authorization'] = `Bearer ${customerToken}`;
+      }
+    } else {
       const isMerchantOrAuthRoute =
         normalizedEndpoint.startsWith('/api/auth/me') ||
         normalizedEndpoint.startsWith('/api/merchant') ||
         normalizedEndpoint.startsWith('/api/stores') ||
         normalizedEndpoint.startsWith('/api/products') ||
         normalizedEndpoint.startsWith('/api/ai/generate-description');
-      
+
       if (isMerchantOrAuthRoute) {
-        headers['Authorization'] = `Bearer ${token}`;
+        const merchantToken = getStoredMerchantToken();
+        if (merchantToken) {
+          headers['Authorization'] = `Bearer ${merchantToken}`;
+        }
       }
     }
   }

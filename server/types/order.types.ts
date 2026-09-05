@@ -3,6 +3,7 @@ import { OrderStatus, PaymentStatus } from '@prisma/client';
 export interface CheckoutInput {
   sessionId: string;
   storeId: string;
+  customerId?: string | null;
 }
 
 export interface OrderItemResponse {
@@ -17,6 +18,9 @@ export interface OrderItemResponse {
 
 export interface OrderResponseData {
   orderId: string;
+  sessionId?: string;
+  storeId?: string;
+  customerId?: string | null;
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   razorpayOrderId?: string | null;

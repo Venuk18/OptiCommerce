@@ -12,6 +12,7 @@ import orderRoutes from './routes/order.routes';
 import paymentRoutes from './routes/payment.routes';
 import merchantDashboardRoutes from './routes/merchant-dashboard.routes';
 import authRoutes from './routes/auth.routes';
+import customerAuthRoutes from './routes/customer-auth.routes';
 import commercialRoutes from './routes/commercial.routes';
 import { hashPassword } from './utils/password';
 import { errorHandler } from './middleware/error.middleware';
@@ -40,6 +41,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/merchant-dashboard', merchantDashboardRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/customer-auth', customerAuthRoutes);
 app.use('/api/commercial', commercialRoutes);
 
 // Error handling middleware
@@ -303,11 +305,80 @@ export async function ensureOrderTable() {
   }
 }
 
+export async function ensureCustomerTable() {
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "Customer" (
+          "id" TEXT NOT NULL,
+          "storeId" TEXT NOT NULL,
+          "name" TEXT,
+          "email" TEXT NOT NULL,
+          "passwordHash" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+          CONSTRAINT "Customer_pkey" PRIMARY KEY ("id")
+      );
+    `);
+
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Customer_storeId_email_key" ON "Customer"("storeId", "email");`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Customer_storeId_idx" ON "Customer"("storeId");`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Customer_email_idx" ON "Customer"("email");`);
+
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+          ALTER TABLE "Customer" ADD CONSTRAINT "Customer_storeId_fkey" FOREIGN KEY ("storeId") REFERENCES "Store"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      EXCEPTION
+          WHEN duplicate_object THEN null;
+      END $$;
+    `);
+
+    // Ensure customerId column and relation exist on Cart
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TABLE "Cart" ADD COLUMN IF NOT EXISTS "customerId" TEXT;
+      EXCEPTION
+        WHEN others THEN null;
+      END $$;
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Cart_customerId_idx" ON "Cart"("customerId");`);
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TABLE "Cart" ADD CONSTRAINT "Cart_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      EXCEPTION
+        WHEN duplicate_object THEN null;
+      END $$;
+    `);
+
+    // Ensure customerId column and relation exist on Order
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "customerId" TEXT;
+      EXCEPTION
+        WHEN others THEN null;
+      END $$;
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Order_customerId_idx" ON "Order"("customerId");`);
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TABLE "Order" ADD CONSTRAINT "Order_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      EXCEPTION
+        WHEN duplicate_object THEN null;
+      END $$;
+    `);
+
+    console.log('[Database] Customer schema verified and ready');
+  } catch (error) {
+    console.warn('[Database] ensureCustomerTable notice:', error);
+  }
+}
+
 export async function initDatabase() {
   const dbStatus = await testDatabaseConnection();
   if (dbStatus.success) {
     console.log(`[Database] ${dbStatus.message}`);
     await ensureEventTable();
+    await ensureCustomerTable();
     await ensureCartTable();
     await ensureOrderTable();
     await ensureDefaultStore();

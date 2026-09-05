@@ -1,10 +1,17 @@
 import { Router } from 'express';
 import { cartController } from '../controllers/cart.controller';
+import { optionalCustomerAuth, requireCustomerAuth } from '../middleware/customer-auth.middleware';
 
 const router = Router();
 
+// Apply optional customer auth to identify logged-in customers while preserving guest flows
+router.use(optionalCustomerAuth);
+
 // GET /api/cart - Get current session's cart for a store
 router.get('/', (req, res, next) => cartController.getCart(req, res, next));
+
+// POST /api/cart/merge - Merge guest cart into customer cart (authenticated)
+router.post('/merge', requireCustomerAuth, (req, res, next) => cartController.mergeCart(req, res, next));
 
 // POST /api/cart/bundles - Deterministic complementary product bundle / cross-sell suggestions
 router.post('/bundles', (req, res, next) => cartController.getBundleSuggestions(req, res, next));
